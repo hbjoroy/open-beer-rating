@@ -1,9 +1,15 @@
-use axum::{Router, routing::get};
+use axum::{Router, routing::{get, post}};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use tracing_subscriber::EnvFilter;
 
+mod auth;
+mod db;
+mod errors;
 mod routes;
+mod state;
+
+use state::AppState;
 
 #[tokio::main]
 async fn main() {
@@ -15,6 +21,13 @@ async fn main() {
 
     let database_url =
         std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+
+    let encryption_key = open_tappd_domain::crypto::parse_encryption_key(
+        &std::env::var("ENCRYPTION_KEY").expect("ENCRYPTION_KEY must be set"),
+    )
+    .expect("ENCRYPTION_KEY must be a valid 32-byte base64-encoded key");
+
+    let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
 
     let pool = PgPoolOptions::new()
         .max_connections(5)
@@ -29,9 +42,17 @@ async fn main() {
 
     tracing::info!("Migrations applied successfully");
 
+    let state = AppState {
+        pool,
+        encryption_key,
+        jwt_secret,
+    };
+
     let app = Router::new()
         .route("/health", get(routes::health::health_check))
-        .with_state(pool);
+        .route("/api/users/register", post(routes::users::register))
+        .route("/api/users/login", post(routes::users::login))
+        .with_state(state);
 
     let host = std::env::var("API_HOST").unwrap_or_else(|_| "0.0.0.0".into());
     let port: u16 = std::env::var("API_PORT")
