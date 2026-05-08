@@ -1,4 +1,4 @@
-use axum::{Router, routing::{get, post}};
+use axum::{Router, routing::{get, post, put, delete}};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use tracing_subscriber::EnvFilter;
@@ -67,6 +67,11 @@ async fn main() {
         .route("/api/users/me/ratings", get(routes::ratings::get_my_ratings))
         // Badges
         .route("/api/users/me/badges", get(routes::badges::get_my_badges))
+        // Privacy & Data Sovereignty
+        .route("/api/users/me/privacy", get(routes::privacy::get_privacy_settings))
+        .route("/api/users/me/privacy", put(routes::privacy::update_privacy_settings))
+        .route("/api/users/me/data-export", get(routes::privacy::export_data))
+        .route("/api/users/me", delete(routes::privacy::delete_account))
         .with_state(state);
 
     let host = std::env::var("API_HOST").unwrap_or_else(|_| "0.0.0.0".into());
