@@ -1,0 +1,9 @@
+[package]
+name = "open-tappd-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+open-tappd-domain = { workspace = true }
+serde = { workspace = true }
