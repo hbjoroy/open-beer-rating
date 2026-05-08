@@ -1,4 +1,8 @@
+mod app;
+mod pages;
+mod components;
+
 fn main() {
-    println!("Open Tappd — Community Beer Tasting Platform");
-    println!("Web frontend coming soon...");
+    console_error_panic_hook::set_once();
+    leptos::mount::mount_to_body(app::App);
 }
