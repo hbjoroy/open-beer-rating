@@ -10,4 +10,7 @@ pub enum DomainError {
 
     #[error("Conflict: {0}")]
     Conflict(String),
+
+    #[error("Encryption error: {0}")]
+    Encryption(String),
 }

@@ -9,3 +9,5 @@ serde = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
+aes-gcm = "0.10"
+base64 = "0.22"
