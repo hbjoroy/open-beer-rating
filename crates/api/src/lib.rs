@@ -27,10 +27,32 @@ pub fn create_router(state: state::AppState) -> Router {
         .route("/api/beers", post(routes::beers::create_beer))
         .route("/api/beers", get(routes::beers::list_beers))
         .route("/api/beers/{id}", get(routes::beers::get_beer))
-        // Ratings
+        // Ratings (deprecated — use /api/tastings)
         .route("/api/beers/{id}/ratings", post(routes::ratings::rate_beer))
         .route("/api/beers/{id}/ratings", get(routes::ratings::get_beer_ratings))
         .route("/api/users/me/ratings", get(routes::ratings::get_my_ratings))
+        // Tastings (replaces ratings)
+        .route("/api/tastings", post(routes::tastings::create_tasting))
+        .route("/api/tastings", get(routes::tastings::list_my_tastings))
+        .route("/api/tastings/{id}", get(routes::tastings::get_tasting))
+        .route("/api/tastings/{id}", put(routes::tastings::update_tasting))
+        .route("/api/tastings/{id}", delete(routes::tastings::delete_tasting))
+        .route("/api/beers/{id}/tastings", get(routes::tastings::get_beer_tastings))
+        // Tasting Sessions
+        .route("/api/tasting-sessions", post(routes::tasting_sessions::create_session))
+        .route("/api/tasting-sessions", get(routes::tasting_sessions::list_sessions))
+        .route("/api/tasting-sessions/join", post(routes::tasting_sessions::join_session_by_code))
+        .route("/api/tasting-sessions/{id}", get(routes::tasting_sessions::get_session))
+        .route("/api/tasting-sessions/{id}/join", post(routes::tasting_sessions::join_session))
+        .route("/api/tasting-sessions/{id}/leave", post(routes::tasting_sessions::leave_session))
+        .route("/api/tasting-sessions/{id}/end", post(routes::tasting_sessions::end_session))
+        .route("/api/tasting-sessions/{id}/tastings", get(routes::tasting_sessions::get_session_tastings))
+        // Locations
+        .route("/api/locations", post(routes::locations::create_location))
+        .route("/api/locations", get(routes::locations::list_locations))
+        .route("/api/locations/{id}", get(routes::locations::get_location))
+        .route("/api/locations/{id}", put(routes::locations::update_location))
+        .route("/api/locations/{id}", delete(routes::locations::delete_location))
         // Badges
         .route("/api/users/me/badges", get(routes::badges::get_my_badges))
         // Privacy & Data Sovereignty

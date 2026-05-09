@@ -37,8 +37,8 @@ pub async fn get_my_badges(
     ))
 }
 
-/// Evaluate and award badges after a rating.
-/// Called internally after each rating submission.
+/// Evaluate and award badges after a tasting.
+/// Called internally after each tasting submission.
 pub async fn evaluate_badges(pool: &PgPool, user_id: Uuid) -> Result<(), ApiError> {
     let all_badges = db::badges::get_all_badges(pool).await?;
 
@@ -50,15 +50,15 @@ pub async fn evaluate_badges(pool: &PgPool, user_id: Uuid) -> Result<(), ApiErro
 
         let qualifies = match badge.criteria_type.as_str() {
             "total_ratings" => {
-                let count = db::ratings::count_user_ratings(pool, user_id).await?;
+                let count = db::tastings::count_user_tastings(pool, user_id).await?;
                 count >= badge.criteria_value as i64
             }
             "unique_styles" => {
-                let count = db::ratings::count_user_unique_styles(pool, user_id).await?;
+                let count = db::tastings::count_user_unique_styles(pool, user_id).await?;
                 count >= badge.criteria_value as i64
             }
             "same_brewery" => {
-                let count = db::ratings::max_ratings_same_brewery(pool, user_id).await?;
+                let count = db::tastings::max_tastings_same_brewery(pool, user_id).await?;
                 count >= badge.criteria_value as i64
             }
             _ => false,

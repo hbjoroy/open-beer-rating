@@ -6,3 +6,6 @@ pub mod ratings;
 pub mod badges;
 pub mod privacy;
 pub mod passkeys;
+pub mod tastings;
+pub mod locations;
+pub mod tasting_sessions;
