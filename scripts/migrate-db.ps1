@@ -75,15 +75,12 @@ if ($migrationFiles.Count -eq 0) {
     exit 0
 }
 
-# Create a tracking table so we don't re-run migrations
+# Create our own tracking table (separate from SQLx's _sqlx_migrations)
 $createTracker = @"
-CREATE TABLE IF NOT EXISTS _sqlx_migrations (
+CREATE TABLE IF NOT EXISTS _script_migrations (
     version BIGINT PRIMARY KEY,
     description TEXT NOT NULL,
-    installed_on TIMESTAMPTZ NOT NULL DEFAULT now(),
-    success BOOLEAN NOT NULL DEFAULT true,
-    checksum BYTEA NOT NULL DEFAULT '\x00',
-    execution_time BIGINT NOT NULL DEFAULT 0
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 "@
 
@@ -101,7 +98,7 @@ foreach ($file in $migrationFiles) {
 
     # Check if already applied
     if (-not $Force) {
-        $check = podman exec $ContainerName psql -U $DbUser -d $DbName -t -c "SELECT COUNT(*) FROM _sqlx_migrations WHERE version = $version;" 2>$null
+        $check = podman exec $ContainerName psql -U $DbUser -d $DbName -t -c "SELECT COUNT(*) FROM _script_migrations WHERE version = $version;" 2>$null
         if ($check -and $check.Trim() -gt "0") {
             Write-Host "  skip $($file.Name) (already applied)" -ForegroundColor DarkGray
             continue
@@ -121,7 +118,7 @@ foreach ($file in $migrationFiles) {
 
     # Record it
     $escapedDesc = $description -replace "'", "''"
-    $record = "INSERT INTO _sqlx_migrations (version, description) VALUES ($version, '$escapedDesc') ON CONFLICT (version) DO NOTHING;"
+    $record = "INSERT INTO _script_migrations (version, description) VALUES ($version, '$escapedDesc') ON CONFLICT (version) DO NOTHING;"
     podman exec $ContainerName psql -U $DbUser -d $DbName -c $record 2>$null
 
     Write-Host "  done  $($file.Name)" -ForegroundColor Green

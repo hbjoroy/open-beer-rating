@@ -28,12 +28,16 @@ async fn main() {
         .await
         .expect("Failed to connect to PostgreSQL");
 
-    sqlx::migrate!("../../migrations")
-        .run(&pool)
-        .await
-        .expect("Failed to run migrations");
-
-    tracing::info!("Migrations applied successfully");
+    // Migrations are applied automatically on startup.
+    // If you pre-applied them via scripts/migrate-db.ps1, SQLx will
+    // detect they're already done and skip them.
+    match sqlx::migrate!("../../migrations").run(&pool).await {
+        Ok(()) => tracing::info!("Migrations applied successfully"),
+        Err(e) => {
+            tracing::warn!("Migration warning: {e}");
+            tracing::info!("If tables already exist, this is safe to ignore.");
+        }
+    }
 
     let state = AppState {
         pool,

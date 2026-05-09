@@ -1,6 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username VARCHAR(30) NOT NULL UNIQUE,
     email_encrypted BYTEA,
@@ -10,9 +10,12 @@ CREATE TABLE users (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TYPE profile_visibility AS ENUM ('public', 'private', 'friends');
+DO $$ BEGIN
+    CREATE TYPE profile_visibility AS ENUM ('public', 'private', 'friends');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TABLE user_privacy_settings (
+CREATE TABLE IF NOT EXISTS user_privacy_settings (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     profile_visibility profile_visibility NOT NULL DEFAULT 'private',
     show_ratings BOOLEAN NOT NULL DEFAULT false,
@@ -21,7 +24,7 @@ CREATE TABLE user_privacy_settings (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE breweries (
+CREATE TABLE IF NOT EXISTS breweries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(200) NOT NULL,
     country VARCHAR(100),
@@ -30,7 +33,7 @@ CREATE TABLE breweries (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE beers (
+CREATE TABLE IF NOT EXISTS beers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     brewery_id UUID NOT NULL REFERENCES breweries(id) ON DELETE CASCADE,
     name VARCHAR(200) NOT NULL,
@@ -40,7 +43,7 @@ CREATE TABLE beers (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE ratings (
+CREATE TABLE IF NOT EXISTS ratings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     beer_id UUID NOT NULL REFERENCES beers(id) ON DELETE CASCADE,
@@ -50,7 +53,7 @@ CREATE TABLE ratings (
     UNIQUE (user_id, beer_id)
 );
 
-CREATE TABLE badges (
+CREATE TABLE IF NOT EXISTS badges (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(100) NOT NULL UNIQUE,
     description TEXT NOT NULL,
@@ -60,14 +63,14 @@ CREATE TABLE badges (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE user_badges (
+CREATE TABLE IF NOT EXISTS user_badges (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     badge_id UUID NOT NULL REFERENCES badges(id) ON DELETE CASCADE,
     earned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, badge_id)
 );
 
-CREATE TABLE encryption_keys (
+CREATE TABLE IF NOT EXISTS encryption_keys (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     key_version INTEGER NOT NULL UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -75,8 +78,8 @@ CREATE TABLE encryption_keys (
 );
 
 -- Indexes for common queries
-CREATE INDEX idx_beers_brewery_id ON beers(brewery_id);
-CREATE INDEX idx_beers_style ON beers(style);
-CREATE INDEX idx_ratings_user_id ON ratings(user_id);
-CREATE INDEX idx_ratings_beer_id ON ratings(beer_id);
-CREATE INDEX idx_user_badges_user_id ON user_badges(user_id);
+CREATE INDEX IF NOT EXISTS idx_beers_brewery_id ON beers(brewery_id);
+CREATE INDEX IF NOT EXISTS idx_beers_style ON beers(style);
+CREATE INDEX IF NOT EXISTS idx_ratings_user_id ON ratings(user_id);
+CREATE INDEX IF NOT EXISTS idx_ratings_beer_id ON ratings(beer_id);
+CREATE INDEX IF NOT EXISTS idx_user_badges_user_id ON user_badges(user_id);
