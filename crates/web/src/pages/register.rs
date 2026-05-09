@@ -254,7 +254,8 @@ async fn call_credentials_create(options_json: &str) -> Result<String, String> {
         "#
     );
 
-    let eval_fn = Function::new_no_args(&format!("return {js_code}"));
+    // ASI fix: "return\n(...)" is parsed as "return;" — must be on same line
+    let eval_fn = Function::new_no_args(&format!("return {}", js_code.trim()));
     let promise = eval_fn.call0(&JsValue::NULL).map_err(|e| format!("JS error: {e:?}"))?;
     let result = JsFuture::from(js_sys::Promise::from(promise))
         .await
