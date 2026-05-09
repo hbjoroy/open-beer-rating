@@ -53,10 +53,16 @@ pub(crate) fn start_registration(
             display_name: display_name.to_string(),
         },
         challenge: base64url::encode(&challenge),
-        pub_key_cred_params: vec![PubKeyCredParam {
-            type_: "public-key".into(),
-            alg: -7, // ES256
-        }],
+        pub_key_cred_params: vec![
+            PubKeyCredParam {
+                type_: "public-key".into(),
+                alg: -7, // ES256 (ECDSA w/ SHA-256)
+            },
+            PubKeyCredParam {
+                type_: "public-key".into(),
+                alg: -257, // RS256 (RSASSA-PKCS1-v1_5 w/ SHA-256)
+            },
+        ],
         timeout: Some(300_000),
         exclude_credentials: exclude,
         authenticator_selection: AuthenticatorSelection {

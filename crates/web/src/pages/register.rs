@@ -166,6 +166,7 @@ async fn do_register(username: &str, email: Option<&str>) -> Result<RegisterResu
 
 async fn do_passkey_register(jwt_token: &str) -> Result<(), String> {
     // Step 1: Get challenge from server
+    web_sys::console::log_1(&"[passkey] Starting registration...".into());
     let resp = gloo_net::http::Request::post("/api/passkeys/register/start")
         .header("Authorization", &format!("Bearer {jwt_token}"))
         .send()
@@ -173,15 +174,22 @@ async fn do_passkey_register(jwt_token: &str) -> Result<(), String> {
         .map_err(|e| format!("Network error: {e}"))?;
 
     if !resp.ok() {
-        return Err("Failed to start passkey registration".into());
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Failed to start passkey registration (HTTP {status}): {body}"));
     }
 
     let data: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
     let challenge_options = &data["challenge"];
 
+    // Log the full server response for debugging
+    web_sys::console::log_1(&format!("[passkey] Server challenge response: {}", serde_json::to_string_pretty(challenge_options).unwrap_or_default()).into());
+
     // Step 2: Call navigator.credentials.create() via JS interop
     let options_json = challenge_options.to_string();
     let credential_json = call_credentials_create(&options_json).await?;
+
+    web_sys::console::log_1(&"[passkey] Credential created, sending to server...".into());
 
     // Step 3: Send credential to server
     let resp = gloo_net::http::Request::post("/api/passkeys/register/finish")
@@ -194,9 +202,12 @@ async fn do_passkey_register(jwt_token: &str) -> Result<(), String> {
         .map_err(|e| format!("Network error: {e}"))?;
 
     if resp.ok() {
+        web_sys::console::log_1(&"[passkey] Registration complete!".into());
         Ok(())
     } else {
-        Err("Failed to complete passkey registration".into())
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        Err(format!("Failed to complete passkey registration (HTTP {status}): {body}"))
     }
 }
 
@@ -212,6 +223,12 @@ async fn call_credentials_create(options_json: &str) -> Result<String, String> {
         r#"
         (async function() {{
             const options = {options_json};
+
+            console.log('[passkey] Raw options from server:', JSON.stringify(options, null, 2));
+            console.log('[passkey] rp.id:', options.rp?.id);
+            console.log('[passkey] rp.name:', options.rp?.name);
+            console.log('[passkey] Current origin:', window.location.origin);
+            console.log('[passkey] Current hostname:', window.location.hostname);
 
             // Decode base64url fields to ArrayBuffers
             function b64urlToBuffer(b64) {{
@@ -238,9 +255,11 @@ async fn call_credentials_create(options_json: &str) -> Result<String, String> {
                 }}));
             }}
 
+            console.log('[passkey] Final publicKey options for credentials.create():', JSON.parse(JSON.stringify(options, (k, v) => v instanceof ArrayBuffer ? '[ArrayBuffer ' + v.byteLength + ' bytes]' : v)));
+
             const credential = await navigator.credentials.create({{ publicKey: options }});
 
-            return JSON.stringify({{
+            const result = JSON.stringify({{
                 id: credential.id,
                 rawId: bufferToB64url(credential.rawId),
                 type: credential.type,
@@ -250,6 +269,10 @@ async fn call_credentials_create(options_json: &str) -> Result<String, String> {
                     transports: credential.response.getTransports ? credential.response.getTransports() : []
                 }}
             }});
+
+            console.log('[passkey] Credential response to send to server:', result);
+
+            return result;
         }})()
         "#
     );

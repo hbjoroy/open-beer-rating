@@ -77,6 +77,7 @@ pub struct RegisterPublicKeyCredential {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthenticatorAttestationResponse {
+    #[serde(rename = "clientDataJSON")]
     pub client_data_json: String,
     pub attestation_object: String,
     #[serde(default)]
@@ -111,6 +112,7 @@ pub struct AuthenticatePublicKeyCredential {
 #[serde(rename_all = "camelCase")]
 pub struct AuthenticatorAssertionResponse {
     pub authenticator_data: String,
+    #[serde(rename = "clientDataJSON")]
     pub client_data_json: String,
     pub signature: String,
     #[serde(default)]

@@ -1,5 +1,6 @@
 use leptos::prelude::*;
 
+use crate::components;
 use crate::pages;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,33 +19,30 @@ pub fn App() -> impl IntoView {
     let (current_page, set_page) = signal(Page::Home);
     let (token, set_token) = signal(Option::<String>::None);
 
-    // TODO: Enable silent passkey auto-auth once login flow is proven.
-    // Conditional mediation requires <input autocomplete="webauthn"> and
-    // causes a server POST on every page load. Disabled for now.
-
     let nav_class = "nav-link";
+
+    let on_navigate = {
+        let set_page = set_page;
+        move |target: &str| match target {
+            "login" => set_page.set(Page::Login),
+            "register" => set_page.set(Page::Register),
+            "profile" => set_page.set(Page::Profile),
+            "add-beer" => set_page.set(Page::AddBeer),
+            _ => {}
+        }
+    };
 
     view! {
         <div class="app">
             <header class="header">
-                <h1 class="logo">"🍺 Open Tappd"</h1>
+                <h1 class="logo" on:click=move |_| set_page.set(Page::Home) style="cursor: pointer;">"🍺 Open Tappd"</h1>
                 <nav class="nav">
-                    <a class=nav_class on:click=move |_| set_page.set(Page::Home)>"Home"</a>
                     <a class=nav_class on:click=move |_| set_page.set(Page::BeerList)>"Beers"</a>
-                    {move || {
-                        if token.get().is_some() {
-                            view! {
-                                <a class=nav_class on:click=move |_| set_page.set(Page::AddBeer)>"+ Add Beer"</a>
-                                <a class=nav_class on:click=move |_| set_page.set(Page::Profile)>"Profile"</a>
-                                <a class=nav_class on:click=move |_| set_token.set(None)>"Logout"</a>
-                            }.into_any()
-                        } else {
-                            view! {
-                                <a class=nav_class on:click=move |_| set_page.set(Page::Login)>"Login"</a>
-                                <a class=nav_class on:click=move |_| set_page.set(Page::Register)>"Register"</a>
-                            }.into_any()
-                        }
-                    }}
+                    <components::user_menu::UserMenu
+                        token=token
+                        set_token=set_token
+                        on_navigate=on_navigate
+                    />
                 </nav>
             </header>
 

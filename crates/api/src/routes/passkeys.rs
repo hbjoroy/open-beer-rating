@@ -25,8 +25,11 @@ pub async fn register_start(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<PasskeyRegisterStartResponse>, ApiError> {
+    tracing::debug!("Passkey register/start for user {} ({})", auth.user_id, auth.username);
+
     let existing = db::passkeys::list_passkeys(&state.pool, auth.user_id).await?;
     let exclude: Vec<Vec<u8>> = existing.iter().map(|p| p.credential_id.clone()).collect();
+    tracing::debug!("Excluding {} existing credentials", exclude.len());
 
     let ccr = state
         .webauthn
@@ -35,6 +38,8 @@ pub async fn register_start(
 
     let challenge_json = serde_json::to_value(&ccr)
         .map_err(|e| ApiError::Internal(format!("JSON serialize: {e}")))?;
+
+    tracing::debug!("Passkey challenge response: {}", serde_json::to_string(&challenge_json).unwrap_or_default());
 
     Ok(Json(PasskeyRegisterStartResponse {
         challenge: challenge_json,
@@ -61,6 +66,8 @@ pub async fn register_finish(
     auth: AuthUser,
     Json(req): Json<PasskeyRegisterFinishRequest>,
 ) -> Result<(axum::http::StatusCode, Json<PasskeyRegisterFinishResponse>), ApiError> {
+    tracing::debug!("Passkey register/finish for user {} — credential id: {}", auth.user_id, req.credential.id);
+
     let stored_cred = state
         .webauthn
         .finish_registration(&req.credential)
