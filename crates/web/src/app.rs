@@ -89,6 +89,7 @@ pub fn App() -> impl IntoView {
                             <pages::rate_beer::RateBeerPage
                                 token=token
                                 active_session=active_session
+                                set_active_session=set_active_session
                             />
                         }.into_any(),
                         Page::Sessions => view! {

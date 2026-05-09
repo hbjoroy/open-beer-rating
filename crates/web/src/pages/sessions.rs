@@ -11,6 +11,7 @@ struct SessionResponse {
     description: Option<String>,
     join_code: String,
     visibility: String,
+    created_by: String,
     started_at: String,
     ended_at: Option<String>,
     auto_end_minutes: i32,
@@ -38,10 +39,6 @@ pub fn SessionBrowserPage(
     let (new_name, set_new_name) = signal(String::new());
     let (new_desc, set_new_desc) = signal(String::new());
     let (creating, set_creating) = signal(false);
-
-    // Join by code
-    let (join_code, set_join_code) = signal(String::new());
-    let (joining, set_joining) = signal(false);
 
     // Load sessions
     let load = move || {
@@ -83,7 +80,7 @@ pub fn SessionBrowserPage(
         leptos::task::spawn_local(async move {
             match create_session(&tok, &name, if desc.is_empty() { None } else { Some(&desc) }).await {
                 Ok(session) => {
-                    set_success.set(Some(format!("Session '{}' created! Join code: {}", session.name, session.join_code)));
+                    set_success.set(Some(format!("Session '{}' created!", session.name)));
                     set_active_session.set(Some(ActiveSession {
                         id: session.id.clone(),
                         name: session.name.clone(),
@@ -96,38 +93,6 @@ pub fn SessionBrowserPage(
                 Err(e) => set_error.set(Some(e)),
             }
             set_creating.set(false);
-        });
-    };
-
-    let on_join_code = move |ev: leptos::ev::SubmitEvent| {
-        ev.prevent_default();
-        let tok = match token.get() {
-            Some(t) => t,
-            None => return,
-        };
-        let code = join_code.get();
-        if code.is_empty() {
-            set_error.set(Some("Enter a join code".into()));
-            return;
-        }
-
-        set_joining.set(true);
-        set_error.set(None);
-
-        leptos::task::spawn_local(async move {
-            match join_by_code(&tok, &code).await {
-                Ok(session) => {
-                    set_success.set(Some(format!("Joined '{}'!", session.name)));
-                    set_active_session.set(Some(ActiveSession {
-                        id: session.id.clone(),
-                        name: session.name.clone(),
-                    }));
-                    set_join_code.set(String::new());
-                    load();
-                }
-                Err(e) => set_error.set(Some(e)),
-            }
-            set_joining.set(false);
         });
     };
 
@@ -160,19 +125,6 @@ pub fn SessionBrowserPage(
                 <button class="btn-primary" on:click=move |_| set_show_create.update(|v| *v = !*v)>
                     {move || if show_create.get() { "Cancel" } else { "+ New Session" }}
                 </button>
-
-                <form class="join-code-form" on:submit=on_join_code>
-                    <input
-                        type="text"
-                        placeholder="Join code..."
-                        maxlength="6"
-                        prop:value=move || join_code.get()
-                        on:input=move |ev| set_join_code.set(event_target_value(&ev).to_uppercase())
-                    />
-                    <button type="submit" disabled=move || joining.get()>
-                        {move || if joining.get() { "..." } else { "Join" }}
-                    </button>
-                </form>
             </div>
 
             {move || show_create.get().then(|| view! {
@@ -209,7 +161,7 @@ pub fn SessionBrowserPage(
                     }
                     let list = sessions.get();
                     if list.is_empty() {
-                        return view! { <p class="empty">"No sessions yet. Create one or join with a code!"</p> }.into_any();
+                        return view! { <p class="empty">"No sessions yet. Create one to get started!"</p> }.into_any();
                     }
                     view! {
                         <div class="session-grid">
@@ -220,7 +172,9 @@ pub fn SessionBrowserPage(
                                     .unwrap_or_default();
                                 let sid = s.id.clone();
                                 let sname = s.name.clone();
-                                let _tok_join = token.get();
+                                let sid_join = s.id.clone();
+                                let sname_join = s.name.clone();
+                                let tok_join = token.get();
                                 view! {
                                     <div class=if is_active { "session-card active" } else { "session-card ended" }>
                                         <div class="session-card-header">
@@ -232,27 +186,31 @@ pub fn SessionBrowserPage(
                                             }}
                                         </div>
                                         {s.description.as_ref().map(|d| view! { <p class="session-desc">{d.clone()}</p> })}
-                                        <p class="session-meta">
-                                            "Code: " <code>{s.join_code.clone()}</code>
-                                            " • " {s.visibility.clone()}
-                                        </p>
                                         {(!participants.is_empty()).then(|| view! {
                                             <p class="session-participants">"👥 " {participants}</p>
                                         })}
                                         {is_active.then(|| {
-                                            let sid2 = sid.clone();
-                                            let sname2 = sname.clone();
                                             view! {
-                                                <button
-                                                    class="btn-secondary"
-                                                    on:click=move |_| {
-                                                        set_active_session.set(Some(ActiveSession {
-                                                            id: sid2.clone(),
-                                                            name: sname2.clone(),
-                                                        }));
-                                                        set_success.set(Some(format!("Now in session '{}'", sname2)));
-                                                    }
-                                                >"Set Active"</button>
+                                                <div class="session-card-actions">
+                                                    <button
+                                                        class="btn-primary"
+                                                        on:click=move |_| {
+                                                            // Join and set active in one click
+                                                            let sid2 = sid_join.clone();
+                                                            let sname2 = sname_join.clone();
+                                                            if let Some(tok) = tok_join.clone() {
+                                                                leptos::task::spawn_local(async move {
+                                                                    let _ = join_session(&tok, &sid2).await;
+                                                                });
+                                                            }
+                                                            set_active_session.set(Some(ActiveSession {
+                                                                id: sid.clone(),
+                                                                name: sname.clone(),
+                                                            }));
+                                                            set_success.set(Some(format!("Joined '{}'", sname2)));
+                                                        }
+                                                    >"Join & Activate"</button>
+                                                </div>
                                             }
                                         })}
                                     </div>
@@ -287,7 +245,10 @@ async fn create_session(
     name: &str,
     description: Option<&str>,
 ) -> Result<SessionResponse, String> {
-    let mut body = serde_json::json!({ "name": name });
+    let mut body = serde_json::json!({
+        "name": name,
+        "visibility": "public",
+    });
     if let Some(d) = description {
         body["description"] = serde_json::Value::String(d.to_string());
     }
@@ -311,24 +272,16 @@ async fn create_session(
     }
 }
 
-async fn join_by_code(token: &str, code: &str) -> Result<SessionResponse, String> {
-    let body = serde_json::json!({ "code": code });
-
-    let resp = gloo_net::http::Request::post("/api/tasting-sessions/join")
-        .header("Content-Type", "application/json")
+async fn join_session(token: &str, session_id: &str) -> Result<(), String> {
+    let resp = gloo_net::http::Request::post(&format!("/api/tasting-sessions/{session_id}/join"))
         .header("Authorization", &format!("Bearer {token}"))
-        .body(body.to_string())
-        .map_err(|e| format!("Request error: {e}"))?
         .send()
         .await
         .map_err(|e| format!("Network error: {e}"))?;
 
     if resp.ok() {
-        resp.json::<SessionResponse>()
-            .await
-            .map_err(|e| format!("Parse error: {e}"))
+        Ok(())
     } else {
-        let data: serde_json::Value = resp.json().await.unwrap_or_default();
-        Err(data["error"].as_str().unwrap_or("Invalid join code").to_string())
+        Err("Failed to join session".to_string())
     }
 }

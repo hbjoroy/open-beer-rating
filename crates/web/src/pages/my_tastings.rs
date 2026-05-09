@@ -9,6 +9,7 @@ struct TastingResponse {
     beer_name: Option<String>,
     brewery_name: Option<String>,
     score: i32,
+    serving_style: Option<String>,
     notes: Option<String>,
     location_name: Option<String>,
     session_name: Option<String>,
@@ -96,6 +97,9 @@ pub fn MyTastingsPage(token: ReadSignal<Option<String>>) -> impl IntoView {
                                         </div>
                                         <div class="tasting-meta">
                                             <span class="date">{format_date(&t.tasted_at)}</span>
+                                            {t.serving_style.as_ref().map(|s| view! {
+                                                <span class="serving">{format_serving(s)}</span>
+                                            })}
                                             {t.location_name.as_ref().map(|l| view! {
                                                 <span class="location">"📍 " {l.clone()}</span>
                                             })}
@@ -142,11 +146,24 @@ pub fn MyTastingsPage(token: ReadSignal<Option<String>>) -> impl IntoView {
 }
 
 fn format_date(iso: &str) -> String {
-    // Simple date formatting: take first 10 chars (YYYY-MM-DD)
     if iso.len() >= 10 {
         iso[..10].to_string()
     } else {
         iso.to_string()
+    }
+}
+
+fn format_serving(style: &str) -> String {
+    match style {
+        "draft" => "🍺 Draft".to_string(),
+        "bottle" => "🍾 Bottle".to_string(),
+        "can" => "🥫 Can".to_string(),
+        "cask" => "🪵 Cask".to_string(),
+        "nitro" => "☁️ Nitro".to_string(),
+        "crowler" => "Crowler".to_string(),
+        "growler" => "Growler".to_string(),
+        "taster" => "Taster".to_string(),
+        _ => style.to_string(),
     }
 }
 

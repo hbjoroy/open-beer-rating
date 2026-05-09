@@ -260,6 +260,7 @@ pub async fn get_session_tastings(
                 beer_name: Some(r.beer_name),
                 brewery_name: Some(r.brewery_name),
                 score: r.score,
+                serving_style: r.serving_style,
                 notes,
                 location_id: r.location_id,
                 location_name: r.location_name,

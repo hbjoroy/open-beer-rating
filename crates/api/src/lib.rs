@@ -34,6 +34,7 @@ pub fn create_router(state: state::AppState) -> Router {
         // Tastings (replaces ratings)
         .route("/api/tastings", post(routes::tastings::create_tasting))
         .route("/api/tastings", get(routes::tastings::list_my_tastings))
+        .route("/api/tastings/recent", get(routes::tastings::get_recent_tastings))
         .route("/api/tastings/{id}", get(routes::tastings::get_tasting))
         .route("/api/tastings/{id}", put(routes::tastings::update_tasting))
         .route("/api/tastings/{id}", delete(routes::tastings::delete_tasting))

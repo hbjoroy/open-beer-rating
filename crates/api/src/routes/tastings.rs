@@ -8,12 +8,14 @@ use crate::auth::jwt::AuthUser;
 use crate::db;
 use crate::errors::ApiError;
 use crate::state::AppState;
+use open_tappd_domain::models::tasting::ServingStyle;
 use open_tappd_domain::{crypto, validation};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateTastingRequest {
     pub beer_id: Uuid,
     pub score: i32,
+    pub serving_style: Option<ServingStyle>,
     pub notes: Option<String>,
     pub location_id: Option<Uuid>,
     pub session_id: Option<Uuid>,
@@ -23,6 +25,7 @@ pub struct CreateTastingRequest {
 #[derive(Debug, Deserialize)]
 pub struct UpdateTastingRequest {
     pub score: i32,
+    pub serving_style: Option<ServingStyle>,
     pub notes: Option<String>,
     pub location_id: Option<Uuid>,
 }
@@ -34,6 +37,7 @@ pub struct TastingResponse {
     pub beer_name: Option<String>,
     pub brewery_name: Option<String>,
     pub score: i32,
+    pub serving_style: Option<ServingStyle>,
     pub notes: Option<String>,
     pub location_id: Option<Uuid>,
     pub location_name: Option<String>,
@@ -57,6 +61,21 @@ pub struct BeerTastingAggregateResponse {
     pub average_score: Option<f64>,
     pub unique_tasters: i64,
     pub total_tastings: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecentTastingResponse {
+    pub id: Uuid,
+    pub username: String,
+    pub beer_id: Uuid,
+    pub beer_name: String,
+    pub beer_style: Option<String>,
+    pub brewery_name: String,
+    pub score: i32,
+    pub serving_style: Option<ServingStyle>,
+    pub location_name: Option<String>,
+    pub session_name: Option<String>,
+    pub tasted_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -115,6 +134,7 @@ pub async fn create_tasting(
         auth.user_id,
         req.beer_id,
         req.score,
+        req.serving_style,
         notes_encrypted.as_deref(),
         req.location_id,
         req.session_id,
@@ -156,6 +176,7 @@ pub async fn list_my_tastings(
             beer_name: Some(r.beer_name),
             brewery_name: Some(r.brewery_name),
             score: r.score,
+            serving_style: r.serving_style,
             notes,
             location_id: r.location_id,
             location_name: r.location_name,
@@ -191,6 +212,7 @@ pub async fn get_tasting(
         beer_name: None,
         brewery_name: None,
         score: row.score,
+        serving_style: row.serving_style,
         notes,
         location_id: row.location_id,
         location_name: None,
@@ -227,6 +249,7 @@ pub async fn update_tasting(
         id,
         auth.user_id,
         req.score,
+        req.serving_style,
         notes_encrypted.as_deref(),
         req.location_id,
     )
@@ -241,6 +264,7 @@ pub async fn update_tasting(
         beer_name: None,
         brewery_name: None,
         score: row.score,
+        serving_style: row.serving_style,
         notes,
         location_id: row.location_id,
         location_name: None,
@@ -294,4 +318,33 @@ fn decrypt_notes(encrypted: Option<&[u8]>, key: &[u8; 32]) -> Option<String> {
 /// Public version for cross-module access
 pub fn decrypt_notes_pub(encrypted: Option<&[u8]>, key: &[u8; 32]) -> Option<String> {
     decrypt_notes(encrypted, key)
+}
+
+/// GET /api/tastings/recent — public feed of recent check-ins (no auth required)
+pub async fn get_recent_tastings(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> Result<Json<Vec<RecentTastingResponse>>, ApiError> {
+    let limit = params.limit.unwrap_or(20).min(50);
+
+    let rows = db::tastings::get_recent_tastings(&state.pool, limit).await?;
+
+    let results: Vec<RecentTastingResponse> = rows
+        .into_iter()
+        .map(|r| RecentTastingResponse {
+            id: r.id,
+            username: r.username,
+            beer_id: r.beer_id,
+            beer_name: r.beer_name,
+            beer_style: r.beer_style,
+            brewery_name: r.brewery_name,
+            score: r.score,
+            serving_style: r.serving_style,
+            location_name: r.location_name,
+            session_name: r.session_name,
+            tasted_at: r.tasted_at,
+        })
+        .collect();
+
+    Ok(Json(results))
 }

@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use open_tappd_domain::models::tasting::ServingStyle;
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
@@ -8,6 +9,7 @@ pub struct TastingRow {
     pub user_id: Uuid,
     pub beer_id: Uuid,
     pub score: i32,
+    pub serving_style: Option<ServingStyle>,
     pub notes_encrypted: Option<Vec<u8>>,
     pub location_id: Option<Uuid>,
     pub session_id: Option<Uuid>,
@@ -24,6 +26,7 @@ pub struct TastingWithDetailsRow {
     pub beer_name: String,
     pub brewery_name: String,
     pub score: i32,
+    pub serving_style: Option<ServingStyle>,
     pub notes_encrypted: Option<Vec<u8>>,
     pub location_id: Option<Uuid>,
     pub location_name: Option<String>,
@@ -31,6 +34,22 @@ pub struct TastingWithDetailsRow {
     pub session_name: Option<String>,
     pub tasted_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
+}
+
+/// Public recent tasting (for the feed) — includes username
+#[derive(Debug, FromRow)]
+pub struct RecentTastingRow {
+    pub id: Uuid,
+    pub username: String,
+    pub beer_id: Uuid,
+    pub beer_name: String,
+    pub beer_style: Option<String>,
+    pub brewery_name: String,
+    pub score: i32,
+    pub serving_style: Option<ServingStyle>,
+    pub location_name: Option<String>,
+    pub session_name: Option<String>,
+    pub tasted_at: DateTime<Utc>,
 }
 
 #[derive(Debug, FromRow)]
@@ -44,6 +63,7 @@ pub async fn create_tasting(
     user_id: Uuid,
     beer_id: Uuid,
     score: i32,
+    serving_style: Option<ServingStyle>,
     notes_encrypted: Option<&[u8]>,
     location_id: Option<Uuid>,
     session_id: Option<Uuid>,
@@ -51,15 +71,16 @@ pub async fn create_tasting(
 ) -> Result<TastingRow, sqlx::Error> {
     sqlx::query_as::<_, TastingRow>(
         r#"
-        INSERT INTO tastings (user_id, beer_id, score, notes_encrypted, location_id, session_id, tasted_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id, user_id, beer_id, score, notes_encrypted, location_id, session_id,
+        INSERT INTO tastings (user_id, beer_id, score, serving_style, notes_encrypted, location_id, session_id, tasted_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id, user_id, beer_id, score, serving_style, notes_encrypted, location_id, session_id,
                   tasted_at, created_at, updated_at
         "#,
     )
     .bind(user_id)
     .bind(beer_id)
     .bind(score)
+    .bind(serving_style)
     .bind(notes_encrypted)
     .bind(location_id)
     .bind(session_id)
@@ -71,7 +92,7 @@ pub async fn create_tasting(
 pub async fn get_tasting(pool: &PgPool, id: Uuid) -> Result<Option<TastingRow>, sqlx::Error> {
     sqlx::query_as::<_, TastingRow>(
         r#"
-        SELECT id, user_id, beer_id, score, notes_encrypted, location_id, session_id,
+        SELECT id, user_id, beer_id, score, serving_style, notes_encrypted, location_id, session_id,
                tasted_at, created_at, updated_at
         FROM tastings WHERE id = $1
         "#,
@@ -86,21 +107,23 @@ pub async fn update_tasting(
     id: Uuid,
     user_id: Uuid,
     score: i32,
+    serving_style: Option<ServingStyle>,
     notes_encrypted: Option<&[u8]>,
     location_id: Option<Uuid>,
 ) -> Result<Option<TastingRow>, sqlx::Error> {
     sqlx::query_as::<_, TastingRow>(
         r#"
         UPDATE tastings
-        SET score = $3, notes_encrypted = $4, location_id = $5, updated_at = now()
+        SET score = $3, serving_style = $4, notes_encrypted = $5, location_id = $6, updated_at = now()
         WHERE id = $1 AND user_id = $2
-        RETURNING id, user_id, beer_id, score, notes_encrypted, location_id, session_id,
+        RETURNING id, user_id, beer_id, score, serving_style, notes_encrypted, location_id, session_id,
                   tasted_at, created_at, updated_at
         "#,
     )
     .bind(id)
     .bind(user_id)
     .bind(score)
+    .bind(serving_style)
     .bind(notes_encrypted)
     .bind(location_id)
     .fetch_optional(pool)
@@ -129,7 +152,7 @@ pub async fn get_user_tastings(
     sqlx::query_as::<_, TastingWithDetailsRow>(
         r#"
         SELECT t.id, t.user_id, t.beer_id, b.name as beer_name, br.name as brewery_name,
-               t.score, t.notes_encrypted,
+               t.score, t.serving_style, t.notes_encrypted,
                t.location_id, l.name as location_name,
                t.session_id, ts.name as session_name,
                t.tasted_at, t.created_at
@@ -193,7 +216,7 @@ pub async fn get_session_tastings(
     sqlx::query_as::<_, TastingWithDetailsRow>(
         r#"
         SELECT t.id, t.user_id, t.beer_id, b.name as beer_name, br.name as brewery_name,
-               t.score, t.notes_encrypted,
+               t.score, t.serving_style, t.notes_encrypted,
                t.location_id, l.name as location_name,
                t.session_id, ts.name as session_name,
                t.tasted_at, t.created_at
@@ -264,4 +287,31 @@ pub async fn max_tastings_same_brewery(pool: &PgPool, user_id: Uuid) -> Result<i
     .fetch_optional(pool)
     .await?;
     Ok(row.map(|r| r.0).unwrap_or(0))
+}
+
+/// Recent tastings across all users (public feed).
+/// Only shows tastings from users who have not opted out of public activity.
+pub async fn get_recent_tastings(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<RecentTastingRow>, sqlx::Error> {
+    sqlx::query_as::<_, RecentTastingRow>(
+        r#"
+        SELECT t.id, u.username, t.beer_id, b.name as beer_name, b.style as beer_style,
+               br.name as brewery_name, t.score, t.serving_style,
+               l.name as location_name, ts.name as session_name,
+               t.tasted_at
+        FROM tastings t
+        JOIN users u ON u.id = t.user_id
+        JOIN beers b ON b.id = t.beer_id
+        JOIN breweries br ON br.id = b.brewery_id
+        LEFT JOIN locations l ON l.id = t.location_id
+        LEFT JOIN tasting_sessions ts ON ts.id = t.session_id
+        ORDER BY t.tasted_at DESC
+        LIMIT $1
+        "#,
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
 }
