@@ -1,19 +1,26 @@
 use leptos::prelude::*;
 use std::sync::Arc;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LoginMode {
+    Choose,
+    NewDevice,
+    RecoveryOnly,
+}
+
 #[component]
 pub fn LoginPage(
     token: WriteSignal<Option<String>>,
     on_success: impl Fn() + Send + Sync + 'static,
 ) -> impl IntoView {
     let (error, set_error) = signal(Option::<String>::None);
+    let (info, set_info) = signal(Option::<String>::None);
     let (loading, set_loading) = signal(false);
-    let (show_recovery, set_show_recovery) = signal(false);
+    let (mode, set_mode) = signal(LoginMode::Choose);
     let (username, set_username) = signal(String::new());
     let (recovery_key, set_recovery_key) = signal(String::new());
     let on_success = Arc::new(on_success);
 
-    // Passkey login button
     let on_passkey_login = {
         let on_success = on_success.clone();
         move |_| {
@@ -36,7 +43,42 @@ pub fn LoginPage(
         }
     };
 
-    // Recovery login form
+    let on_new_device_submit = {
+        let on_success = on_success.clone();
+        move |ev: leptos::ev::SubmitEvent| {
+            ev.prevent_default();
+            set_loading.set(true);
+            set_error.set(None);
+            set_info.set(None);
+
+            let username_val = username.get();
+            let recovery_val = recovery_key.get();
+            let on_success = on_success.clone();
+
+            leptos::task::spawn_local(async move {
+                match do_recovery_login(&username_val, &recovery_val).await {
+                    Ok(tok) => {
+                        set_info.set(Some("✅ Signed in! Setting up passkey on this device...".into()));
+                        match do_passkey_register_after_recovery(&tok).await {
+                            Ok(()) => {
+                                set_info.set(Some("✅ Passkey registered on this device!".into()));
+                            }
+                            Err(e) => {
+                                set_info.set(Some(format!("⚠️ Signed in, but passkey setup skipped: {e}")));
+                            }
+                        }
+                        token.set(Some(tok));
+                        on_success();
+                    }
+                    Err(e) => {
+                        set_error.set(Some(e));
+                        set_loading.set(false);
+                    }
+                }
+            });
+        }
+    };
+
     let on_recovery_submit = {
         let on_success = on_success.clone();
         move |ev: leptos::ev::SubmitEvent| {
@@ -51,13 +93,7 @@ pub fn LoginPage(
             leptos::task::spawn_local(async move {
                 match do_recovery_login(&username_val, &recovery_val).await {
                     Ok(tok) => {
-                        token.set(Some(tok.clone()));
-                        // After recovery, try to register a passkey on this device
-                        if let Err(e) = do_passkey_register_after_recovery(&tok).await {
-                            web_sys::console::warn_1(
-                                &format!("Passkey setup after recovery skipped: {e}").into(),
-                            );
-                        }
+                        token.set(Some(tok));
                         on_success();
                     }
                     Err(e) => {
@@ -74,27 +110,78 @@ pub fn LoginPage(
             <h2>"Sign In"</h2>
 
             {move || error.get().map(|e| view! { <p class="error">{e}</p> })}
+            {move || info.get().map(|i| view! { <p class="success">{i}</p> })}
 
-            <div class="passkey-login-section">
-                <button
-                    class="btn-primary btn-large"
-                    on:click=on_passkey_login.clone()
-                    disabled=move || loading.get()
-                >
-                    {move || if loading.get() { "Signing in..." } else { "🔑 Sign in with Passkey" }}
-                </button>
-                <p class="hint">"Use your fingerprint, face, or device PIN"</p>
-            </div>
+            {move || match mode.get() {
+                LoginMode::Choose => view! {
+                    <div class="login-options">
+                        <button
+                            class="btn-primary btn-large"
+                            on:click=on_passkey_login.clone()
+                            disabled=move || loading.get()
+                        >
+                            {move || if loading.get() { "Signing in..." } else { "🔑 Sign in with Passkey" }}
+                        </button>
+                        <p class="hint">"Use your fingerprint, face, or device PIN"</p>
 
-            <div class="divider">
-                <span>"or"</span>
-            </div>
+                        <div class="divider"><span>"or"</span></div>
 
-            {move || if show_recovery.get() {
-                view! {
+                        <div class="login-alt-options">
+                            <button class="btn-secondary" on:click=move |_| set_mode.set(LoginMode::NewDevice)>
+                                "📱 New Device"
+                            </button>
+                            <p class="hint">"Sign in with recovery key and set up a passkey on this device"</p>
+
+                            <button class="btn-text" on:click=move |_| set_mode.set(LoginMode::RecoveryOnly)>
+                                "🔐 Recovery Key Only"
+                            </button>
+                        </div>
+                    </div>
+                }.into_any(),
+
+                LoginMode::NewDevice => view! {
                     <div class="recovery-section">
-                        <h3>"Recovery Login"</h3>
-                        <p class="hint">"Use your recovery key from when you registered"</p>
+                        <h3>"📱 New Device Setup"</h3>
+                        <p class="hint">"Sign in with your recovery key, then we'll register a passkey on this device so you can use it next time."</p>
+
+                        <form on:submit=on_new_device_submit.clone()>
+                            <div class="form-group">
+                                <label for="username">"Username"</label>
+                                <input
+                                    id="username"
+                                    type="text"
+                                    prop:value=move || username.get()
+                                    on:input=move |ev| set_username.set(event_target_value(&ev))
+                                    required
+                                />
+                            </div>
+                            <div class="form-group">
+                                <label for="recovery-key">"Recovery Key"</label>
+                                <input
+                                    id="recovery-key"
+                                    type="text"
+                                    prop:value=move || recovery_key.get()
+                                    on:input=move |ev| set_recovery_key.set(event_target_value(&ev))
+                                    placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+                                    required
+                                />
+                            </div>
+                            <button type="submit" disabled=move || loading.get()>
+                                {move || if loading.get() { "Setting up..." } else { "Sign in & Set Up Passkey" }}
+                            </button>
+                        </form>
+
+                        <button class="btn-text" on:click=move |_| { set_mode.set(LoginMode::Choose); set_error.set(None); }>
+                            "← Back"
+                        </button>
+                    </div>
+                }.into_any(),
+
+                LoginMode::RecoveryOnly => view! {
+                    <div class="recovery-section">
+                        <h3>"🔐 Recovery Key Sign In"</h3>
+                        <p class="hint">"Sign in using your recovery key only. No passkey will be created on this device."</p>
+
                         <form on:submit=on_recovery_submit.clone()>
                             <div class="form-group">
                                 <label for="username">"Username"</label>
@@ -118,17 +205,15 @@ pub fn LoginPage(
                                 />
                             </div>
                             <button type="submit" disabled=move || loading.get()>
-                                {move || if loading.get() { "Recovering..." } else { "Sign in with Recovery Key" }}
+                                {move || if loading.get() { "Signing in..." } else { "Sign In" }}
                             </button>
                         </form>
+
+                        <button class="btn-text" on:click=move |_| { set_mode.set(LoginMode::Choose); set_error.set(None); }>
+                            "← Back"
+                        </button>
                     </div>
-                }.into_any()
-            } else {
-                view! {
-                    <button class="btn-text" on:click=move |_| set_show_recovery.set(true)>
-                        "Use recovery key instead"
-                    </button>
-                }.into_any()
+                }.into_any(),
             }}
         </div>
     }

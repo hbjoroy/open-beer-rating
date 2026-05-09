@@ -614,3 +614,111 @@ button[type="submit"]:disabled {
 .score-btn.good { background: #27ae60; color: white; }
 .score-btn.excellent { background: #2ecc71; color: black; }
 .score-btn.world-class { background: #d4a017; color: black; }
+
+/* Login page */
+.login-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.login-alt-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.btn-large {
+    padding: 1rem;
+    font-size: 1.1rem;
+}
+
+.btn-secondary {
+    width: 100%;
+    padding: 0.75rem;
+    background: transparent;
+    color: var(--primary);
+    border: 2px solid var(--primary);
+    border-radius: 4px;
+    font-size: 1rem;
+    cursor: pointer;
+    font-weight: bold;
+    transition: background 0.2s;
+}
+
+.btn-secondary:hover {
+    background: rgba(212, 160, 23, 0.15);
+}
+
+.btn-text {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 0.5rem 0;
+    text-decoration: underline;
+}
+
+.btn-text:hover {
+    color: var(--text);
+}
+
+.divider {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin: 1rem 0;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.divider::before,
+.divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.recovery-section {
+    margin-top: 0.5rem;
+}
+
+.recovery-section h3 {
+    margin-bottom: 0.5rem;
+}
+
+.warning {
+    color: #f39c12;
+    margin: 0.5rem 0;
+}
+
+.recovery-key-box {
+    background: rgba(212, 160, 23, 0.1);
+    border: 1px solid var(--primary);
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin: 1rem 0;
+    text-align: center;
+}
+
+.recovery-key-label {
+    color: var(--primary);
+    font-weight: bold;
+    margin-bottom: 0.75rem;
+}
+
+.recovery-key-value {
+    font-family: 'Courier New', monospace;
+    font-size: 1.2rem;
+    letter-spacing: 0.05em;
+    color: var(--text);
+    margin-bottom: 0.75rem;
+    word-break: break-all;
+}
+
+.recovery-key-warning {
+    color: var(--error);
+    font-size: 0.85rem;
+}
