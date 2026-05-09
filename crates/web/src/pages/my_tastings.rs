@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 struct TastingResponse {
     id: String,
     beer_id: String,

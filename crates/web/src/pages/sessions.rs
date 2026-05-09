@@ -4,6 +4,7 @@ use serde::Deserialize;
 use crate::pages::rate_beer::ActiveSession;
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 struct SessionResponse {
     id: String,
     name: String,
@@ -219,7 +220,7 @@ pub fn SessionBrowserPage(
                                     .unwrap_or_default();
                                 let sid = s.id.clone();
                                 let sname = s.name.clone();
-                                let tok_join = token.get();
+                                let _tok_join = token.get();
                                 view! {
                                     <div class=if is_active { "session-card active" } else { "session-card ended" }>
                                         <div class="session-card-header">

@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 struct BeerSearchResult {
@@ -10,6 +10,7 @@ struct BeerSearchResult {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 struct TastingCreated {
     id: String,
     score: i32,
