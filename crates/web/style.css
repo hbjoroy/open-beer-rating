@@ -722,3 +722,274 @@ button[type="submit"]:disabled {
     color: var(--error);
     font-size: 0.85rem;
 }
+
+/* === Rate Beer Page === */
+.beer-search {
+    margin: 1.5rem 0;
+}
+
+.search-bar {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.search-bar input {
+    flex: 1;
+    padding: 0.75rem;
+    border: 1px solid #333;
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 1rem;
+}
+
+.search-bar button {
+    padding: 0.75rem 1.25rem;
+    background: var(--primary);
+    color: #000;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.search-results {
+    background: var(--bg-card);
+    border: 1px solid #333;
+    border-radius: 6px;
+    margin-top: 0.25rem;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.search-result-item {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    border-bottom: 1px solid #222;
+}
+
+.search-result-item:hover {
+    background: rgba(212, 160, 23, 0.15);
+}
+
+.search-result-item:last-child {
+    border-bottom: none;
+}
+
+.selected-beer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(212, 160, 23, 0.1);
+    border: 1px solid var(--primary);
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+}
+
+.active-session-banner {
+    background: rgba(46, 204, 113, 0.1);
+    border: 1px solid var(--success);
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.active-session-indicator {
+    font-size: 1.1rem;
+    cursor: default;
+}
+
+/* === Sessions Page === */
+.session-actions {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    margin: 1.5rem 0;
+    flex-wrap: wrap;
+}
+
+.join-code-form {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.join-code-form input {
+    width: 100px;
+    padding: 0.5rem;
+    border: 1px solid #333;
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    text-align: center;
+}
+
+.join-code-form button {
+    padding: 0.5rem 1rem;
+    background: var(--primary);
+    color: #000;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.create-session-form {
+    background: var(--bg-card);
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+}
+
+.session-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.session-card {
+    background: var(--bg-card);
+    border-radius: 8px;
+    padding: 1.25rem;
+    border: 1px solid #333;
+    transition: border-color 0.2s;
+}
+
+.session-card.active {
+    border-color: var(--success);
+}
+
+.session-card.ended {
+    opacity: 0.7;
+}
+
+.session-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.session-card-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.status-badge {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 12px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.status-badge.active {
+    background: rgba(46, 204, 113, 0.2);
+    color: var(--success);
+}
+
+.status-badge.ended {
+    background: rgba(138, 138, 138, 0.2);
+    color: var(--text-muted);
+}
+
+.session-desc {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin: 0.5rem 0;
+}
+
+.session-meta {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin: 0.5rem 0;
+}
+
+.session-meta code {
+    background: rgba(212, 160, 23, 0.15);
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.9em;
+    color: var(--primary);
+}
+
+.session-participants {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+/* === My Tastings Timeline === */
+.tastings-timeline {
+    margin-top: 1rem;
+}
+
+.timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.tasting-entry {
+    background: var(--bg-card);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    border: 1px solid #333;
+}
+
+.tasting-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.tasting-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.tasting-info strong {
+    font-size: 1.05rem;
+}
+
+.tasting-info .brewery {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.tasting-meta {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    flex-wrap: wrap;
+}
+
+.tasting-notes {
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+    font-style: italic;
+    color: var(--text-muted);
+    padding: 0.5rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 4px;
+}
+
+.load-more {
+    display: block;
+    margin: 1.5rem auto;
+}
+
+.empty {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 2rem;
+}

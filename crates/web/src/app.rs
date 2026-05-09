@@ -2,6 +2,7 @@ use leptos::prelude::*;
 
 use crate::components;
 use crate::pages;
+use crate::pages::rate_beer::ActiveSession;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Page {
@@ -12,12 +13,16 @@ enum Page {
     BeerDetail(String),
     AddBeer,
     Profile,
+    RateBeer,
+    Sessions,
+    MyTastings,
 }
 
 #[component]
 pub fn App() -> impl IntoView {
     let (current_page, set_page) = signal(Page::Home);
     let (token, set_token) = signal(Option::<String>::None);
+    let (active_session, set_active_session) = signal(Option::<ActiveSession>::None);
 
     let nav_class = "nav-link";
 
@@ -28,6 +33,8 @@ pub fn App() -> impl IntoView {
             "register" => set_page.set(Page::Register),
             "profile" => set_page.set(Page::Profile),
             "add-beer" => set_page.set(Page::AddBeer),
+            "rate-beer" => set_page.set(Page::RateBeer),
+            "my-tastings" => set_page.set(Page::MyTastings),
             _ => {}
         }
     };
@@ -38,6 +45,13 @@ pub fn App() -> impl IntoView {
                 <h1 class="logo" on:click=move |_| set_page.set(Page::Home) style="cursor: pointer;">"🍺 Open Tappd"</h1>
                 <nav class="nav">
                     <a class=nav_class on:click=move |_| set_page.set(Page::BeerList)>"Beers"</a>
+                    <a class=nav_class on:click=move |_| set_page.set(Page::RateBeer)>"Rate"</a>
+                    <a class=nav_class on:click=move |_| set_page.set(Page::Sessions)>"Sessions"</a>
+                    {move || active_session.get().map(|s| view! {
+                        <span class="active-session-indicator" title=format!("Active: {}", s.name)>
+                            "📋"
+                        </span>
+                    })}
                     <components::user_menu::UserMenu
                         token=token
                         set_token=set_token
@@ -71,6 +85,22 @@ pub fn App() -> impl IntoView {
                             <pages::add_beer::AddBeerPage token=token />
                         }.into_any(),
                         Page::Profile => view! { <pages::profile::ProfilePage token=token /> }.into_any(),
+                        Page::RateBeer => view! {
+                            <pages::rate_beer::RateBeerPage
+                                token=token
+                                active_session=active_session
+                            />
+                        }.into_any(),
+                        Page::Sessions => view! {
+                            <pages::sessions::SessionBrowserPage
+                                token=token
+                                active_session=active_session
+                                set_active_session=set_active_session
+                            />
+                        }.into_any(),
+                        Page::MyTastings => view! {
+                            <pages::my_tastings::MyTastingsPage token=token />
+                        }.into_any(),
                     }
                 }}
             </main>

@@ -12,6 +12,7 @@ struct BeerDetail {
     description: Option<String>,
     average_score: Option<f64>,
     rating_count: i64,
+    total_tastings: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -129,7 +130,8 @@ pub fn BeerDetailPage(
                                                 }
                                             })}
                                             <span class="count">
-                                                {format!("{} rating{}", count, if count == 1 { "" } else { "s" })}
+                                                {format!("{} taster{}", count, if count == 1 { "" } else { "s" })}
+                                                {beer.total_tastings.filter(|&t| t > count).map(|t| format!(" ({t} tastings)"))}
                                             </span>
                                         </div>
                                     </div>
@@ -197,7 +199,7 @@ pub fn BeerDetailPage(
                     </div>
 
                     <button type="submit" disabled=move || submitting.get()>
-                        {move || if submitting.get() { "Submitting..." } else { "Submit Rating" }}
+                        {move || if submitting.get() { "Submitting..." } else { "Submit Tasting" }}
                     </button>
                 </form>
             </div>
@@ -215,10 +217,24 @@ async fn fetch_beer_with_brewery(id: &str) -> Result<(BeerDetail, BreweryInfo), 
         return Err("Beer not found".to_string());
     }
 
-    let beer: BeerDetail = resp
+    let mut beer: BeerDetail = resp
         .json()
         .await
         .map_err(|e| format!("Parse error: {e}"))?;
+
+    // Fetch tastings aggregate
+    if let Ok(agg_resp) = gloo_net::http::Request::get(&format!("/api/beers/{id}/tastings"))
+        .send()
+        .await
+    {
+        if agg_resp.ok() {
+            if let Ok(agg) = agg_resp.json::<serde_json::Value>().await {
+                beer.average_score = agg["average_score"].as_f64();
+                beer.rating_count = agg["unique_tasters"].as_i64().unwrap_or(0);
+                beer.total_tastings = agg["total_tastings"].as_i64();
+            }
+        }
+    }
 
     let brewery_resp =
         gloo_net::http::Request::get(&format!("/api/breweries/{}", beer.brewery_id))
@@ -248,12 +264,16 @@ async fn submit_rating(
     score: i32,
     notes: Option<&str>,
 ) -> Result<(), String> {
-    let mut body = serde_json::json!({ "score": score });
+    let mut body = serde_json::json!({
+        "beer_id": beer_id,
+        "score": score,
+    });
     if let Some(n) = notes {
         body["notes"] = serde_json::Value::String(n.to_string());
     }
 
-    let resp = gloo_net::http::Request::post(&format!("/api/beers/{beer_id}/ratings"))
+    // Use the new tastings API
+    let resp = gloo_net::http::Request::post("/api/tastings")
         .header("Content-Type", "application/json")
         .header("Authorization", &format!("Bearer {token}"))
         .body(body.to_string())

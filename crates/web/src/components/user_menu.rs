@@ -52,6 +52,7 @@ pub fn UserMenu(
                     let display = username.get().unwrap_or_else(|| "User".to_string());
                     let on_nav_profile = on_nav.clone();
                     let on_nav_add = on_nav.clone();
+                    let on_nav_tastings = on_nav.clone();
                     view! {
                         <button class="user-menu-trigger logged-in" on:click=toggle_menu>
                             <span class="user-avatar">"👤"</span>
@@ -59,9 +60,10 @@ pub fn UserMenu(
                             <span class="dropdown-arrow">{move || if menu_open.get() { "▲" } else { "▼" }}</span>
                         </button>
                         <div class="user-dropdown" class:open=move || menu_open.get()>
-                            <a class="dropdown-item" on:click=move |_| { close_menu(); on_nav_add("add-beer"); }>"🍺 Add Beer"</a>
-                            <a class="dropdown-item" on:click=move |_| { close_menu(); on_nav_profile("profile"); }>"⚙️ Profile"</a>
+                            <a class="dropdown-item" on:click=move |_| { close_menu(); on_nav_add("rate-beer"); }>"🍺 Rate a Beer"</a>
+                            <a class="dropdown-item" on:click=move |_| { close_menu(); on_nav_tastings("my-tastings"); }>"📝 My Tastings"</a>
                             <div class="dropdown-divider"></div>
+                            <a class="dropdown-item" on:click=move |_| { close_menu(); on_nav_profile("profile"); }>"⚙️ Profile"</a>
                             <a class="dropdown-item" on:click=move |_| { close_menu(); set_token.set(None); }>"🚪 Sign Out"</a>
                         </div>
                     }.into_any()

@@ -2,8 +2,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "session_visibility", rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "sqlx-support", derive(sqlx::Type))]
+#[cfg_attr(feature = "sqlx-support", sqlx(type_name = "session_visibility", rename_all = "snake_case"))]
 #[serde(rename_all = "snake_case")]
 pub enum SessionVisibility {
     Private,

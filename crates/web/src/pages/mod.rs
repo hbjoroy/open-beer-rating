@@ -5,3 +5,6 @@ pub mod beer_list;
 pub mod beer_detail;
 pub mod add_beer;
 pub mod profile;
+pub mod rate_beer;
+pub mod sessions;
+pub mod my_tastings;
