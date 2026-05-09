@@ -41,6 +41,7 @@ pub async fn list_beers(
     pool: &PgPool,
     brewery_id: Option<Uuid>,
     style: Option<&str>,
+    search: Option<&str>,
     limit: i64,
     offset: i64,
 ) -> Result<Vec<BeerRow>, sqlx::Error> {
@@ -50,12 +51,14 @@ pub async fn list_beers(
         FROM beers
         WHERE ($1::uuid IS NULL OR brewery_id = $1)
           AND ($2::text IS NULL OR style ILIKE $2)
+          AND ($3::text IS NULL OR name ILIKE '%' || $3 || '%')
         ORDER BY name
-        LIMIT $3 OFFSET $4
+        LIMIT $4 OFFSET $5
         "#,
     )
     .bind(brewery_id)
     .bind(style)
+    .bind(search)
     .bind(limit)
     .bind(offset)
     .fetch_all(pool)

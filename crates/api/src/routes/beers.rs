@@ -44,6 +44,7 @@ pub struct BeerDetailResponse {
 pub struct BeerListParams {
     pub brewery_id: Option<Uuid>,
     pub style: Option<String>,
+    pub search: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -99,6 +100,7 @@ pub async fn list_beers(
         &state.pool,
         params.brewery_id,
         params.style.as_deref(),
+        params.search.as_deref(),
         limit,
         offset,
     )
