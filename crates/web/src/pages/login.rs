@@ -362,7 +362,7 @@ async fn call_credentials_get(options_json: &str) -> Result<String, String> {
     let promise = eval_fn.call0(&JsValue::NULL).map_err(|e| format!("JS error: {e:?}"))?;
     let result = JsFuture::from(js_sys::Promise::from(promise))
         .await
-        .map_err(|e| format!("Passkey auth failed: {e:?}"))?;
+        .map_err(|e| crate::components::webauthn_errors::friendly_webauthn_error(&format!("{e:?}")))?;
 
     result.as_string().ok_or("No result from credentials.get".into())
 }
@@ -421,7 +421,7 @@ async fn call_credentials_create(options_json: &str) -> Result<String, String> {
     let promise = eval_fn.call0(&JsValue::NULL).map_err(|e| format!("JS error: {e:?}"))?;
     let result = JsFuture::from(js_sys::Promise::from(promise))
         .await
-        .map_err(|e| format!("Passkey creation failed: {e:?}"))?;
+        .map_err(|e| crate::components::webauthn_errors::friendly_webauthn_error(&format!("{e:?}")))?;
 
     result.as_string().ok_or("No result from credentials.create".into())
 }
