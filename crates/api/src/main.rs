@@ -1,8 +1,10 @@
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
 use open_tappd_api::state::AppState;
+use open_tappd_webauthn::{WebAuthn, WebAuthnConfig};
 
 #[tokio::main]
 async fn main() {
@@ -22,15 +24,20 @@ async fn main() {
 
     let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
 
+    // WebAuthn configuration
+    let rp_id = std::env::var("WEBAUTHN_RP_ID").unwrap_or_else(|_| "localhost".into());
+    let rp_origin = std::env::var("WEBAUTHN_ORIGIN")
+        .unwrap_or_else(|_| "http://localhost:8080".into());
+
+    let webauthn_config = WebAuthnConfig::new(&rp_id, &rp_origin);
+    let webauthn = WebAuthn::new(webauthn_config);
+
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
         .await
         .expect("Failed to connect to PostgreSQL");
 
-    // Migrations are applied automatically on startup.
-    // If you pre-applied them via scripts/migrate-db.ps1, SQLx will
-    // detect they're already done and skip them.
     match sqlx::migrate!("../../migrations").run(&pool).await {
         Ok(()) => tracing::info!("Migrations applied successfully"),
         Err(e) => {
@@ -43,6 +50,7 @@ async fn main() {
         pool,
         encryption_key,
         jwt_secret,
+        webauthn: Arc::new(webauthn),
     };
 
     let app = open_tappd_api::create_router(state);

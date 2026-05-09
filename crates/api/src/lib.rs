@@ -12,6 +12,13 @@ pub fn create_router(state: state::AppState) -> Router {
         // Users
         .route("/api/users/register", post(routes::users::register))
         .route("/api/users/login", post(routes::users::login))
+        // Passkeys
+        .route("/api/passkeys/register/start", post(routes::passkeys::register_start))
+        .route("/api/passkeys/register/finish", post(routes::passkeys::register_finish))
+        .route("/api/passkeys/auth/start", post(routes::passkeys::auth_start))
+        .route("/api/passkeys/auth/finish", post(routes::passkeys::auth_finish))
+        .route("/api/passkeys", get(routes::passkeys::list_passkeys))
+        .route("/api/passkeys/{id}", delete(routes::passkeys::delete_passkey))
         // Breweries
         .route("/api/breweries", post(routes::breweries::create_brewery))
         .route("/api/breweries", get(routes::breweries::list_breweries))

@@ -1,0 +1,22 @@
+[package]
+name = "open-tappd-webauthn"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Pure-Rust WebAuthn Relying Party library — no OpenSSL dependency"
+repository = "https://github.com/open-tappd/open-tappd"
+keywords = ["webauthn", "fido2", "passkey", "authentication"]
+categories = ["authentication", "web-programming"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ciborium = "0.2"
+base64 = "0.22"
+sha2 = "0.10"
+p256 = { version = "0.13", features = ["ecdsa"] }
+rand = "0.9"
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]

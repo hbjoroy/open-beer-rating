@@ -2,12 +2,14 @@ use leptos::prelude::*;
 
 use crate::pages;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Page {
     Home,
     Login,
     Register,
     BeerList,
+    BeerDetail(String),
+    AddBeer,
     Profile,
 }
 
@@ -28,6 +30,7 @@ pub fn App() -> impl IntoView {
                     {move || {
                         if token.get().is_some() {
                             view! {
+                                <a class=nav_class on:click=move |_| set_page.set(Page::AddBeer)>"+ Add Beer"</a>
                                 <a class=nav_class on:click=move |_| set_page.set(Page::Profile)>"Profile"</a>
                                 <a class=nav_class on:click=move |_| set_token.set(None)>"Logout"</a>
                             }.into_any()
@@ -42,12 +45,31 @@ pub fn App() -> impl IntoView {
             </header>
 
             <main class="content">
-                {move || match current_page.get() {
-                    Page::Home => view! { <pages::home::HomePage /> }.into_any(),
-                    Page::Login => view! { <pages::login::LoginPage token=set_token on_success=move || set_page.set(Page::Home) /> }.into_any(),
-                    Page::Register => view! { <pages::register::RegisterPage on_success=move || set_page.set(Page::Login) /> }.into_any(),
-                    Page::BeerList => view! { <pages::beer_list::BeerListPage /> }.into_any(),
-                    Page::Profile => view! { <pages::profile::ProfilePage token=token /> }.into_any(),
+                {move || {
+                    let page = current_page.get();
+                    match page {
+                        Page::Home => view! { <pages::home::HomePage /> }.into_any(),
+                        Page::Login => view! { <pages::login::LoginPage token=set_token on_success=move || set_page.set(Page::BeerList) /> }.into_any(),
+                        Page::Register => view! { <pages::register::RegisterPage on_success=move || set_page.set(Page::Login) /> }.into_any(),
+                        Page::BeerList => view! {
+                            <pages::beer_list::BeerListPage
+                                token=token
+                                on_view_beer=move |id: String| set_page.set(Page::BeerDetail(id))
+                                on_add_beer=move || set_page.set(Page::AddBeer)
+                            />
+                        }.into_any(),
+                        Page::BeerDetail(id) => view! {
+                            <pages::beer_detail::BeerDetailPage
+                                beer_id=id
+                                token=token
+                                on_back=move || set_page.set(Page::BeerList)
+                            />
+                        }.into_any(),
+                        Page::AddBeer => view! {
+                            <pages::add_beer::AddBeerPage token=token />
+                        }.into_any(),
+                        Page::Profile => view! { <pages::profile::ProfilePage token=token /> }.into_any(),
+                    }
                 }}
             </main>
 

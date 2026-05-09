@@ -17,12 +17,14 @@ tracing-subscriber = { workspace = true }
 axum = "0.8"
 axum-extra = { version = "0.10", features = ["typed-header"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
-sqlx = { version = "0.8", features = ["runtime-tokio-native-tls", "postgres", "uuid", "chrono", "migrate"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate"] }
 dotenvy = "0.15"
 argon2 = "0.5"
 base64 = "0.22"
 hmac = "0.12"
 sha2 = "0.10"
+open-tappd-webauthn = { path = "../webauthn" }
+url = "2"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

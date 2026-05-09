@@ -10,26 +10,49 @@ struct BeerResponse {
 }
 
 #[component]
-pub fn BeerListPage() -> impl IntoView {
+pub fn BeerListPage(
+    token: ReadSignal<Option<String>>,
+    on_view_beer: impl Fn(String) + Send + Sync + 'static,
+    on_add_beer: impl Fn() + Send + Sync + 'static,
+) -> impl IntoView {
+    let on_view_beer = std::sync::Arc::new(on_view_beer);
+    let on_add_beer = std::sync::Arc::new(on_add_beer);
+
     let beers = leptos::prelude::LocalResource::new(|| fetch_beers());
+
+    let on_add = on_add_beer.clone();
 
     view! {
         <div class="page beer-list">
-            <h2>"Beers"</h2>
+            <div class="page-header">
+                <h2>"Beers"</h2>
+                {move || {
+                    let on_add = on_add.clone();
+                    token.get().is_some().then(move || {
+                        view! {
+                            <button class="btn-primary" on:click=move |_| on_add()>"+ Add Beer"</button>
+                        }
+                    })
+                }}
+            </div>
 
             <Suspense fallback=move || view! { <p>"Loading beers..."</p> }>
                 {move || {
+                    let on_view = on_view_beer.clone();
                     beers.get().map(|result| {
                         match &*result {
                             Ok(beer_list) => {
                                 if beer_list.is_empty() {
                                     view! { <p>"No beers yet. Be the first to add one!"</p> }.into_any()
                                 } else {
+                                    let on_view = on_view.clone();
                                     view! {
                                         <div class="beer-grid">
                                             {beer_list.iter().map(|beer| {
+                                                let on_view = on_view.clone();
+                                                let id = beer.id.clone();
                                                 view! {
-                                                    <div class="beer-card">
+                                                    <div class="beer-card clickable" on:click=move |_| on_view(id.clone())>
                                                         <h3>{beer.name.clone()}</h3>
                                                         {beer.style.as_ref().map(|s| view! { <span class="style">{s.clone()}</span> })}
                                                         {beer.abv.map(|a| view! { <span class="abv">{format!("{:.1}%", a)}</span> })}

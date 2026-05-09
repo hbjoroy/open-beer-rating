@@ -57,7 +57,7 @@ pub struct DataExportBadge {
 
 #[derive(Debug, Deserialize)]
 pub struct DeleteAccountRequest {
-    pub password: String,
+    pub recovery_key: String,
 }
 
 /// GET /api/users/me/privacy
@@ -187,17 +187,17 @@ pub async fn delete_account(
     auth: AuthUser,
     Json(req): Json<DeleteAccountRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    // Verify password before deletion
+    // Verify recovery key before deletion
     let user = db::users::find_user_by_id(&state.pool, auth.user_id)
         .await?
         .ok_or_else(|| ApiError::NotFound("User not found".into()))?;
 
     use argon2::{Argon2, PasswordHash, PasswordVerifier};
-    let parsed_hash = PasswordHash::new(&user.password_hash)
-        .map_err(|e| ApiError::Internal(format!("Invalid password hash: {e}")))?;
+    let parsed_hash = PasswordHash::new(&user.recovery_key_hash)
+        .map_err(|e| ApiError::Internal(format!("Invalid recovery key hash: {e}")))?;
     Argon2::default()
-        .verify_password(req.password.as_bytes(), &parsed_hash)
-        .map_err(|_| ApiError::Unauthorized("Invalid password".into()))?;
+        .verify_password(req.recovery_key.as_bytes(), &parsed_hash)
+        .map_err(|_| ApiError::Unauthorized("Invalid recovery key".into()))?;
 
     // Hard delete all user data (cascades via FK constraints)
     db::privacy::delete_user_data(&state.pool, auth.user_id).await?;
