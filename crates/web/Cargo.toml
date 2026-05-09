@@ -10,8 +10,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 leptos = { version = "0.7", features = ["csr"] }
 gloo-net = { version = "0.6", features = ["http"] }
-web-sys = "0.3"
+web-sys = { version = "0.3", features = ["CredentialsContainer", "Navigator", "PublicKeyCredential", "PublicKeyCredentialCreationOptions", "PublicKeyCredentialRequestOptions", "AuthenticatorResponse", "AuthenticatorAttestationResponse", "AuthenticatorAssertionResponse", "CredentialCreationOptions", "CredentialRequestOptions", "Window", "Storage"] }
 wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.2", features = ["js"] }
 uuid = { workspace = true, features = ["js"] }

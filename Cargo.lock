@@ -1797,12 +1797,14 @@ dependencies = [
  "console_error_panic_hook",
  "getrandom 0.2.17",
  "gloo-net",
+ "js-sys",
  "leptos",
  "open-tappd-domain",
  "serde",
  "serde_json",
  "uuid",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
 ]
 

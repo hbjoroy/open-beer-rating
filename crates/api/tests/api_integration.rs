@@ -44,10 +44,19 @@ async fn test_app() -> axum::Router {
         .await
         .expect("Failed to run migrations");
 
+    let webauthn = std::sync::Arc::new(open_tappd_webauthn::WebAuthn::new(
+        open_tappd_webauthn::WebAuthnConfig {
+            rp_id: "localhost".to_string(),
+            rp_name: "Open Tappd Test".to_string(),
+            origin: "http://localhost:8080".to_string(),
+        },
+    ));
+
     let state = open_tappd_api::state::AppState {
         pool,
         encryption_key,
         jwt_secret,
+        webauthn,
     };
 
     open_tappd_api::create_router(state)
@@ -59,29 +68,30 @@ async fn body_json(body: Body) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
-/// Helper to register a user and return the response.
-async fn register_user(app: &axum::Router, username: &str, password: &str) -> (StatusCode, Value) {
+/// Register a user; returns (status, body_json, recovery_key).
+/// The new API only needs username (no password).
+async fn register_user(app: &axum::Router, username: &str) -> (StatusCode, Value, String) {
     let req = Request::builder()
         .method("POST")
         .uri("/api/users/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
-            json!({
-                "username": username,
-                "password": password
-            })
-            .to_string(),
+            json!({ "username": username }).to_string(),
         ))
         .unwrap();
 
     let resp = app.clone().oneshot(req).await.unwrap();
     let status = resp.status();
     let body = body_json(resp.into_body()).await;
-    (status, body)
+    let recovery_key = body["recovery_key"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    (status, body, recovery_key)
 }
 
-/// Helper to login and return the JWT token.
-async fn login_user(app: &axum::Router, username: &str, password: &str) -> String {
+/// Login with recovery key and return the JWT token.
+async fn login_user(app: &axum::Router, username: &str, recovery_key: &str) -> String {
     let req = Request::builder()
         .method("POST")
         .uri("/api/users/login")
@@ -89,7 +99,7 @@ async fn login_user(app: &axum::Router, username: &str, password: &str) -> Strin
         .body(Body::from(
             json!({
                 "username": username,
-                "password": password
+                "recovery_key": recovery_key
             })
             .to_string(),
         ))
@@ -101,8 +111,15 @@ async fn login_user(app: &axum::Router, username: &str, password: &str) -> Strin
     body["token"].as_str().unwrap().to_string()
 }
 
+/// Register + immediately get a token (convenience for tests that just need auth).
+async fn register_and_get_token(app: &axum::Router, username: &str) -> (String, String) {
+    let (_status, body, recovery_key) = register_user(app, username).await;
+    let token = body["token"].as_str().unwrap().to_string();
+    (token, recovery_key)
+}
+
 // ──────────────────────────────────────────────
-// Health check (no DB required — but needs router)
+// Health check
 // ──────────────────────────────────────────────
 
 #[tokio::test]
@@ -132,12 +149,16 @@ async fn register_user_minimal() {
     let app = test_app().await;
     let username = format!("testuser_{}", uuid::Uuid::new_v4().simple());
 
-    let (status, body) = register_user(&app, &username, "securepassword123").await;
+    let (status, body, recovery_key) = register_user(&app, &username).await;
     assert_eq!(status, StatusCode::CREATED);
-    assert_eq!(body["username"], username);
-    assert!(body["id"].is_string());
-    // Password hash should NOT be in the response
-    assert!(body.get("password_hash").is_none());
+    assert_eq!(body["user"]["username"], username);
+    assert!(body["user"]["id"].is_string());
+    assert!(body["token"].is_string());
+    // Recovery key should be returned (format: XXXX-XXXX-XXXX-XXXX-XXXX-XXXX)
+    assert!(!recovery_key.is_empty());
+    assert_eq!(recovery_key.matches('-').count(), 5);
+    // Recovery key hash should NOT be in the response
+    assert!(body.get("recovery_key_hash").is_none());
 }
 
 #[tokio::test]
@@ -153,7 +174,6 @@ async fn register_user_with_email() {
         .body(Body::from(
             json!({
                 "username": username,
-                "password": "securepassword123",
                 "email": "test@example.com"
             })
             .to_string(),
@@ -170,35 +190,25 @@ async fn register_duplicate_username_returns_409() {
     let app = test_app().await;
     let username = format!("dupuser_{}", uuid::Uuid::new_v4().simple());
 
-    let (status, _) = register_user(&app, &username, "password12345678").await;
+    let (status, _, _) = register_user(&app, &username).await;
     assert_eq!(status, StatusCode::CREATED);
 
-    let (status, _) = register_user(&app, &username, "password12345678").await;
+    let (status, _, _) = register_user(&app, &username).await;
     assert_eq!(status, StatusCode::CONFLICT);
 }
 
-#[tokio::test]
-#[ignore = "requires PostgreSQL"]
-async fn register_short_password_returns_422() {
-    let app = test_app().await;
-    let username = format!("shortpw_{}", uuid::Uuid::new_v4().simple());
-
-    let (status, _) = register_user(&app, &username, "short").await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-}
-
 // ──────────────────────────────────────────────
-// User Authentication
+// User Authentication (Recovery Key)
 // ──────────────────────────────────────────────
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL"]
-async fn login_valid_credentials() {
+async fn login_with_recovery_key() {
     let app = test_app().await;
     let username = format!("loginuser_{}", uuid::Uuid::new_v4().simple());
-    register_user(&app, &username, "securepassword123").await;
+    let (_, _, recovery_key) = register_user(&app, &username).await;
 
-    let token = login_user(&app, &username, "securepassword123").await;
+    let token = login_user(&app, &username, &recovery_key).await;
     assert!(!token.is_empty());
     // JWT has 3 parts separated by dots
     assert_eq!(token.split('.').count(), 3);
@@ -206,10 +216,10 @@ async fn login_valid_credentials() {
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL"]
-async fn login_wrong_password_returns_401() {
+async fn login_wrong_recovery_key_returns_401() {
     let app = test_app().await;
-    let username = format!("wrongpw_{}", uuid::Uuid::new_v4().simple());
-    register_user(&app, &username, "securepassword123").await;
+    let username = format!("wrongrk_{}", uuid::Uuid::new_v4().simple());
+    register_user(&app, &username).await;
 
     let req = Request::builder()
         .method("POST")
@@ -218,7 +228,7 @@ async fn login_wrong_password_returns_401() {
         .body(Body::from(
             json!({
                 "username": username,
-                "password": "wrongpassword123"
+                "recovery_key": "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF"
             })
             .to_string(),
         ))
@@ -237,8 +247,7 @@ async fn login_wrong_password_returns_401() {
 async fn create_and_list_breweries() {
     let app = test_app().await;
     let username = format!("brewer_{}", uuid::Uuid::new_v4().simple());
-    register_user(&app, &username, "securepassword123").await;
-    let token = login_user(&app, &username, "securepassword123").await;
+    let (token, _) = register_and_get_token(&app, &username).await;
 
     // Create a brewery
     let req = Request::builder()
@@ -282,8 +291,7 @@ async fn create_and_list_breweries() {
 async fn create_and_get_beer() {
     let app = test_app().await;
     let username = format!("beerlover_{}", uuid::Uuid::new_v4().simple());
-    register_user(&app, &username, "securepassword123").await;
-    let token = login_user(&app, &username, "securepassword123").await;
+    let (token, _) = register_and_get_token(&app, &username).await;
 
     // Create brewery first
     let req = Request::builder()
@@ -347,8 +355,7 @@ async fn create_and_get_beer() {
 async fn rate_beer_and_check_aggregate() {
     let app = test_app().await;
     let username = format!("rater_{}", uuid::Uuid::new_v4().simple());
-    register_user(&app, &username, "securepassword123").await;
-    let token = login_user(&app, &username, "securepassword123").await;
+    let (token, _) = register_and_get_token(&app, &username).await;
 
     // Create brewery + beer
     let req = Request::builder()
@@ -396,7 +403,6 @@ async fn rate_beer_and_check_aggregate() {
     assert_eq!(resp.status(), StatusCode::OK);
     let agg = body_json(resp.into_body()).await;
     assert_eq!(agg["count"], 1);
-    // Average should be 8.0
     assert!(agg["average"].as_f64().unwrap() > 7.9);
 
     // Get my own ratings (private, needs auth)
@@ -418,8 +424,7 @@ async fn rate_beer_and_check_aggregate() {
 async fn rating_score_out_of_range_rejected() {
     let app = test_app().await;
     let username = format!("badscore_{}", uuid::Uuid::new_v4().simple());
-    register_user(&app, &username, "securepassword123").await;
-    let token = login_user(&app, &username, "securepassword123").await;
+    let (token, _) = register_and_get_token(&app, &username).await;
 
     // Create brewery + beer
     let req = Request::builder()
@@ -478,8 +483,7 @@ async fn rating_score_out_of_range_rejected() {
 async fn privacy_settings_default_to_private() {
     let app = test_app().await;
     let username = format!("privuser_{}", uuid::Uuid::new_v4().simple());
-    register_user(&app, &username, "securepassword123").await;
-    let token = login_user(&app, &username, "securepassword123").await;
+    let (token, _) = register_and_get_token(&app, &username).await;
 
     let req = Request::builder()
         .uri("/api/users/me/privacy")
@@ -490,7 +494,6 @@ async fn privacy_settings_default_to_private() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     let settings = body_json(resp.into_body()).await;
-    // Default: everything private
     assert_eq!(settings["profile_visibility"], "private");
     assert_eq!(settings["show_ratings"], false);
     assert_eq!(settings["show_badges"], false);
@@ -502,8 +505,7 @@ async fn privacy_settings_default_to_private() {
 async fn update_privacy_settings() {
     let app = test_app().await;
     let username = format!("updpriv_{}", uuid::Uuid::new_v4().simple());
-    register_user(&app, &username, "securepassword123").await;
-    let token = login_user(&app, &username, "securepassword123").await;
+    let (token, _) = register_and_get_token(&app, &username).await;
 
     let req = Request::builder()
         .method("PUT")
@@ -524,7 +526,6 @@ async fn update_privacy_settings() {
     let resp = app.clone().oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    // Verify the update
     let req = Request::builder()
         .uri("/api/users/me/privacy")
         .header("Authorization", format!("Bearer {token}"))
@@ -543,8 +544,7 @@ async fn update_privacy_settings() {
 async fn data_export_includes_all_user_data() {
     let app = test_app().await;
     let username = format!("export_{}", uuid::Uuid::new_v4().simple());
-    register_user(&app, &username, "securepassword123").await;
-    let token = login_user(&app, &username, "securepassword123").await;
+    let (token, _) = register_and_get_token(&app, &username).await;
 
     let req = Request::builder()
         .uri("/api/users/me/data-export")
@@ -564,16 +564,16 @@ async fn data_export_includes_all_user_data() {
 async fn account_deletion_removes_all_data() {
     let app = test_app().await;
     let username = format!("deluser_{}", uuid::Uuid::new_v4().simple());
-    register_user(&app, &username, "securepassword123").await;
-    let token = login_user(&app, &username, "securepassword123").await;
+    let (_, _, recovery_key) = register_user(&app, &username).await;
+    let token = login_user(&app, &username, &recovery_key).await;
 
-    // Delete account
+    // Delete account (requires recovery key for confirmation)
     let req = Request::builder()
         .method("DELETE")
         .uri("/api/users/me")
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {token}"))
-        .body(Body::from(json!({"password": "securepassword123"}).to_string()))
+        .body(Body::from(json!({"recovery_key": recovery_key}).to_string()))
         .unwrap();
 
     let resp = app.clone().oneshot(req).await.unwrap();
@@ -587,7 +587,7 @@ async fn account_deletion_removes_all_data() {
         .body(Body::from(
             json!({
                 "username": username,
-                "password": "securepassword123"
+                "recovery_key": recovery_key
             })
             .to_string(),
         ))
