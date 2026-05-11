@@ -45,30 +45,42 @@ Existing beer rating apps are closed-source and centralized. Your drinking data 
 
 ## Getting Started
 
-### Prerequisites
+### Docker (recommended)
 
-- Rust (stable, 1.75+)
-- Docker & Docker Compose (for PostgreSQL)
-- [trunk](https://trunkrs.dev/) (for frontend dev server, optional)
-
-### Setup
+The easiest way to run Open Tappd:
 
 ```bash
 # Clone the repository
 git clone https://github.com/hbjoroy/open-beer-rating.git
 cd open-beer-rating
 
-# Start PostgreSQL
+# Configure environment
+cp .env.example .env
+# Edit .env — set ENCRYPTION_KEY and JWT_SECRET:
+#   openssl rand -base64 32   (for ENCRYPTION_KEY)
+#   openssl rand -hex 32      (for JWT_SECRET)
+
+# Build and run everything
 docker compose up -d
 
-# Copy environment config
+# App is now at http://localhost:3000
+```
+
+### Local Development
+
+Prerequisites: Rust (stable, 1.85+), Docker (for PostgreSQL), [trunk](https://trunkrs.dev/)
+
+```bash
+# Start PostgreSQL only
+docker compose up -d postgres
+
 cp .env.example .env
 # Edit .env to set ENCRYPTION_KEY and JWT_SECRET
 
 # Build the workspace
 cargo build
 
-# Run the API server
+# Run the API server (applies migrations on startup)
 cargo run -p open-tappd-api
 
 # Run unit tests

@@ -16,5 +16,21 @@ services:
       timeout: 5s
       retries: 5
 
+  app:
+    build: .
+    container_name: opentappd-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-opentappd}:${POSTGRES_PASSWORD:-opentappd_dev}@postgres:5432/${POSTGRES_DB:-opentappd}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
+      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-http://localhost:3000}
+      RUST_LOG: ${RUST_LOG:-info,open_tappd_api=debug}
+    ports:
+      - "${API_PORT:-3000}:3000"
+
 volumes:
   pgdata:

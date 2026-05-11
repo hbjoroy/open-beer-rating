@@ -1,0 +1,11 @@
+target/
+crates/web/dist/
+.git/
+.env
+.env.local
+*.swp
+*.swo
+.idea/
+.vscode/
+docs/
+scripts/

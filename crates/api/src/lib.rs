@@ -7,7 +7,7 @@ pub mod state;
 use axum::{Router, routing::{get, post, put, delete}};
 
 pub fn create_router(state: state::AppState) -> Router {
-    Router::new()
+    let api = Router::new()
         .route("/health", get(routes::health::health_check))
         // Users
         .route("/api/users/register", post(routes::users::register))
@@ -61,5 +61,19 @@ pub fn create_router(state: state::AppState) -> Router {
         .route("/api/users/me/privacy", put(routes::privacy::update_privacy_settings))
         .route("/api/users/me/data-export", get(routes::privacy::export_data))
         .route("/api/users/me", delete(routes::privacy::delete_account))
-        .with_state(state)
+        .with_state(state);
+
+    // Serve static frontend assets if the directory exists (production Docker build)
+    let static_dir = std::env::var("STATIC_DIR").unwrap_or_else(|_| "./static".into());
+    if std::path::Path::new(&static_dir).exists() {
+        tracing::info!("Serving static frontend from {}", static_dir);
+        api.fallback_service(
+            tower_http::services::ServeDir::new(&static_dir)
+                .fallback(tower_http::services::ServeFile::new(
+                    format!("{}/index.html", static_dir),
+                )),
+        )
+    } else {
+        api
+    }
 }
