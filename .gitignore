@@ -17,3 +17,7 @@ Thumbs.db
 
 # SQLx offline mode
 sqlx-data.json
+
+# Local certificates (corporate proxy)
+*.cer
+*.crt
