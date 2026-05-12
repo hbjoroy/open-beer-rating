@@ -58,14 +58,14 @@ database:
   existingPasswordSecretKey: "password"
 
   # -- Initial database setup (BYO postgres only)
-  # Connects as admin to create the app database and user.
+  # When adminPassword is provided (or existingAdminSecret is set),
+  # an init container creates the database and user automatically.
   setup:
-    enabled: false
     # Postgres superuser name
     adminUser: postgres
-    # Postgres superuser password (required when setup.enabled)
+    # Postgres superuser password — presence triggers setup
     adminPassword: ""
-    # Use an existing secret for the admin password
+    # Use an existing secret for the admin password instead
     existingAdminSecret: ""
     existingAdminSecretKey: "postgres-password"
 

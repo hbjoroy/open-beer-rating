@@ -137,3 +137,13 @@ Database admin password secret key
 {{- "admin-password" }}
 {{- end }}
 {{- end }}
+
+{{/*
+Whether database setup init container should run.
+Triggered by presence of adminPassword or existingAdminSecret.
+*/}}
+{{- define "open-tappd.dbSetupEnabled" -}}
+{{- if and (not .Values.postgresql.enabled) (or .Values.database.setup.adminPassword .Values.database.setup.existingAdminSecret) }}
+{{- true }}
+{{- end }}
+{{- end }}

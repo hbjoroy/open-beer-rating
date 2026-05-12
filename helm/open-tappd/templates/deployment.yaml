@@ -25,7 +25,7 @@ spec:
       serviceAccountName: {{ include "open-tappd.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      {{- if and .Values.database.setup.enabled (not .Values.postgresql.enabled) }}
+      {{- if include "open-tappd.dbSetupEnabled" . }}
       initContainers:
         - name: db-setup
           image: postgres:17-alpine
@@ -135,7 +135,7 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
-        {{- if and .Values.database.setup.enabled (not .Values.postgresql.enabled) }}
+        {{- if include "open-tappd.dbSetupEnabled" . }}
         - name: db-password
           secret:
             secretName: {{ include "open-tappd.dbPasswordSecretName" . }}
