@@ -1,0 +1,12 @@
+apiVersion: v2
+name: open-tappd
+description: Open Tappd — privacy-first community beer tasting platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+dependencies:
+  - name: postgresql
+    version: "~16.7"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled

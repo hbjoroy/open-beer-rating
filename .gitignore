@@ -21,3 +21,7 @@ sqlx-data.json
 # Local certificates (corporate proxy)
 *.cer
 *.crt
+
+# Helm dependency charts (downloaded via helm dependency update)
+helm/*/charts/
+helm/*/*.tgz

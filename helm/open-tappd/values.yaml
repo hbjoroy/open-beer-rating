@@ -1,0 +1,150 @@
+# -- Open Tappd Helm Chart Values --
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/hbjoroy/open-beer-rating
+  tag: latest
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# -- Application configuration
+app:
+  # WebAuthn / Passkey settings
+  webauthn:
+    rpId: "localhost"
+    origin: "http://localhost:3000"
+
+  # Logging
+  logLevel: "info,open_tappd_api=debug"
+
+  # Server
+  port: 3000
+
+# -- Secrets (auto-generated if not provided)
+secrets:
+  # Base64-encoded 32-byte encryption key for field-level encryption.
+  # Generate with: openssl rand -base64 32
+  # If empty, a random key is generated on first install.
+  encryptionKey: ""
+
+  # JWT signing secret.
+  # Generate with: openssl rand -hex 32
+  # If empty, a random secret is generated on first install.
+  jwtSecret: ""
+
+  # Use an existing Secret instead of creating one.
+  # Must contain keys: encryption-key, jwt-secret, database-url
+  existingSecret: ""
+
+# -- Database configuration
+database:
+  # Database name
+  name: open-drink-tasting
+  # Database user
+  user: open-drink-tasting
+  # Database password (auto-generated if empty and postgresql.enabled)
+  password: ""
+  # Database host (only used when postgresql.enabled is false)
+  host: ""
+  # Database port
+  port: 5432
+  # Use an existing secret for the database password.
+  # Must contain key: password
+  existingPasswordSecret: ""
+  existingPasswordSecretKey: "password"
+
+# -- Built-in PostgreSQL (Bitnami subchart)
+postgresql:
+  enabled: true
+  auth:
+    # Synced from database.name/user/password — do not set these directly.
+    # Override database.* values instead.
+    database: open-drink-tasting
+    username: open-drink-tasting
+    # Leave empty for auto-generation by the Bitnami chart
+    password: ""
+    postgresPassword: ""
+    # Let Bitnami manage its own secret
+    existingSecret: ""
+  primary:
+    persistence:
+      enabled: true
+      size: 5Gi
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+
+# -- Service
+service:
+  type: ClusterIP
+  port: 80
+
+# -- Ingress
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: open-tappd.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: open-tappd-tls
+  #    hosts:
+  #      - open-tappd.local
+
+# -- Pod configuration
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    memory: 64Mi
+    cpu: 50m
+  limits:
+    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# -- Probes
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 15
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 3
+  periodSeconds: 5

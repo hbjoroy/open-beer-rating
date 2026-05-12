@@ -10,7 +10,7 @@
 # ==============================================================================
 
 # ------ Stage 1: Chef (plan dependencies) ------
-FROM rust:1.95-bookworm AS chef
+FROM rust:1.95-trixie AS chef
 
 # Trust corporate CA (Cisco Umbrella) — remove this for CI/cloud builds
 COPY cisco.cer /usr/local/share/ca-certificates/cisco.crt
@@ -86,7 +86,7 @@ ENV SQLX_OFFLINE=true
 RUN cargo zigbuild --release --package open-tappd-api
 
 # ------ Stage 5: Build WASM frontend ------
-FROM rust:1.95-bookworm AS wasm-builder
+FROM rust:1.95-trixie AS wasm-builder
 
 COPY cisco.cer /usr/local/share/ca-certificates/cisco.crt
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -119,7 +119,7 @@ WORKDIR /app/crates/web
 RUN trunk build --release
 
 # ------ Stage 6: Runtime ------
-FROM debian:bookworm-slim AS runtime
+FROM debian:trixie-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl && \

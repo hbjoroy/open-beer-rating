@@ -2,6 +2,9 @@
 target = "index.html"
 dist = "dist"
 
+[tools]
+wasm_bindgen = "0.2.121"
+
 [watch]
 watch = ["src", "index.html", "style.css"]
 

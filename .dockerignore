@@ -9,3 +9,4 @@ crates/web/dist/
 .vscode/
 docs/
 scripts/
+helm/

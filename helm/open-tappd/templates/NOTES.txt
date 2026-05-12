@@ -1,0 +1,32 @@
+🍺 Open Tappd has been deployed!
+
+{{- if .Values.ingress.enabled }}
+Access the application at:
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else if contains "NodePort" .Values.service.type }}
+Get the application URL:
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "open-tappd.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.service.type }}
+Get the application URL (may take a few minutes for the LoadBalancer IP):
+  kubectl get svc --namespace {{ .Release.Namespace }} {{ include "open-tappd.fullname" . }} -w
+{{- else }}
+Port-forward to access locally:
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "open-tappd.fullname" . }} 3000:{{ .Values.service.port }}
+  echo "Open http://localhost:3000"
+{{- end }}
+
+{{- if .Values.postgresql.enabled }}
+
+PostgreSQL is deployed as part of this release.
+Database: {{ .Values.database.name }}
+User: {{ .Values.database.user }}
+{{- else }}
+
+Using external PostgreSQL at {{ .Values.database.host }}:{{ .Values.database.port }}/{{ .Values.database.name }}
+{{- end }}
+
+Migrations are applied automatically on startup.
