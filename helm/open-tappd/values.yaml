@@ -44,9 +44,9 @@ secrets:
 database:
   # Database name
   name: open-drink-tasting
-  # Database user
+  # Database user (non-root, created by init if setup.enabled)
   user: open-drink-tasting
-  # Database password (auto-generated if empty and postgresql.enabled)
+  # Database password (auto-generated if empty)
   password: ""
   # Database host (only used when postgresql.enabled is false)
   host: ""
@@ -56,6 +56,18 @@ database:
   # Must contain key: password
   existingPasswordSecret: ""
   existingPasswordSecretKey: "password"
+
+  # -- Initial database setup (BYO postgres only)
+  # Connects as admin to create the app database and user.
+  setup:
+    enabled: false
+    # Postgres superuser name
+    adminUser: postgres
+    # Postgres superuser password (required when setup.enabled)
+    adminPassword: ""
+    # Use an existing secret for the admin password
+    existingAdminSecret: ""
+    existingAdminSecretKey: "postgres-password"
 
 # -- Built-in PostgreSQL (Bitnami subchart)
 postgresql:

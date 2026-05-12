@@ -25,6 +25,53 @@ spec:
       serviceAccountName: {{ include "open-tappd.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if and .Values.database.setup.enabled (not .Values.postgresql.enabled) }}
+      initContainers:
+        - name: db-setup
+          image: postgres:17-alpine
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              echo "Checking if database '{{ .Values.database.name }}' exists..."
+              if PGPASSWORD="$ADMIN_PASSWORD" psql -h "{{ include "open-tappd.databaseHost" . }}" -p {{ .Values.database.port }} -U "{{ .Values.database.setup.adminUser }}" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='{{ .Values.database.name }}'" | grep -q 1; then
+                echo "Database already exists."
+              else
+                echo "Creating database and user..."
+                PGPASSWORD="$ADMIN_PASSWORD" psql -h "{{ include "open-tappd.databaseHost" . }}" -p {{ .Values.database.port }} -U "{{ .Values.database.setup.adminUser }}" -d postgres <<SQL
+              DO \$\$
+              BEGIN
+                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{{ .Values.database.user }}') THEN
+                  CREATE ROLE "{{ .Values.database.user }}" WITH LOGIN PASSWORD '$(cat /run/secrets/db-password)';
+                END IF;
+              END\$\$;
+              CREATE DATABASE "{{ .Values.database.name }}" OWNER "{{ .Values.database.user }}";
+              GRANT ALL PRIVILEGES ON DATABASE "{{ .Values.database.name }}" TO "{{ .Values.database.user }}";
+              SQL
+                echo "Database and user created."
+              fi
+              echo "Ensuring user password is current..."
+              PGPASSWORD="$ADMIN_PASSWORD" psql -h "{{ include "open-tappd.databaseHost" . }}" -p {{ .Values.database.port }} -U "{{ .Values.database.setup.adminUser }}" -d postgres -c "ALTER ROLE \"{{ .Values.database.user }}\" WITH PASSWORD '$(cat /run/secrets/db-password)'"
+              echo "Database setup complete."
+          env:
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "open-tappd.dbAdminSecretName" . }}
+                  key: {{ include "open-tappd.dbAdminSecretKey" . }}
+          volumeMounts:
+            - name: db-password
+              mountPath: /run/secrets
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           securityContext:
@@ -88,6 +135,14 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if and .Values.database.setup.enabled (not .Values.postgresql.enabled) }}
+        - name: db-password
+          secret:
+            secretName: {{ include "open-tappd.dbPasswordSecretName" . }}
+            items:
+              - key: {{ include "open-tappd.dbPasswordSecretKey" . }}
+                path: db-password
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

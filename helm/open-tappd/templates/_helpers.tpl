@@ -115,3 +115,25 @@ Database password secret key
 {{- "password" }}
 {{- end }}
 {{- end }}
+
+{{/*
+Database admin password secret name (for init setup)
+*/}}
+{{- define "open-tappd.dbAdminSecretName" -}}
+{{- if .Values.database.setup.existingAdminSecret }}
+{{- .Values.database.setup.existingAdminSecret }}
+{{- else }}
+{{- include "open-tappd.fullname" . }}-db
+{{- end }}
+{{- end }}
+
+{{/*
+Database admin password secret key
+*/}}
+{{- define "open-tappd.dbAdminSecretKey" -}}
+{{- if .Values.database.setup.existingAdminSecret }}
+{{- .Values.database.setup.existingAdminSecretKey }}
+{{- else }}
+{{- "admin-password" }}
+{{- end }}
+{{- end }}
