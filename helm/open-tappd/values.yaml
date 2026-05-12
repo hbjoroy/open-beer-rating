@@ -3,8 +3,8 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/hbjoroy/open-beer-rating
-  tag: latest
+  repository: oci.bjoroy.me/open-drink-tasting/open-drink-tasting
+  tag: "0.1.0"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
