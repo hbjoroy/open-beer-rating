@@ -10,7 +10,8 @@
 # ------ Stage 1: Chef (build tools + dependency planning) ------
 FROM --platform=$BUILDPLATFORM rust:1.95-trixie AS chef
 
-# Trust corporate CA (Cisco Umbrella) — remove this for CI/cloud builds
+# Trust corporate CA if present (cisco.cer for Cisco Umbrella proxy).
+# For CI: the workflow creates an empty cisco.cer so COPY succeeds.
 COPY cisco.cer /usr/local/share/ca-certificates/cisco.crt
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl xz-utils ca-certificates && \
