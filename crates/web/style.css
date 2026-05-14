@@ -353,6 +353,10 @@ button[type="submit"],
     box-shadow: 0 10px 24px rgba(212, 160, 23, 0.2);
 }
 
+button[type="submit"] {
+    width: 100%;
+}
+
 button[type="submit"]:hover,
 .btn-primary:hover,
 .search-bar button:hover,
@@ -1123,6 +1127,14 @@ button[type="submit"]:disabled {
     margin-top: 0.65rem;
     color: var(--text-muted);
     font-size: 0.84rem;
+}
+
+.feed-date,
+.feed-location,
+.feed-session {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
 }
 
 .feed-serving {
