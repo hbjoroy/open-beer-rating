@@ -46,14 +46,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     tracing::info!("Database connected");
 
-    match sqlx::migrate!("../../migrations").run(&pool).await {
-        Ok(()) => tracing::info!("Migrations applied successfully"),
-        Err(e) => {
-            tracing::warn!("Migration warning: {e}");
-            tracing::info!("If tables already exist, this is safe to ignore.");
-        }
-    }
-
     let state = AppState {
         pool,
         encryption_key,
