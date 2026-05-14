@@ -147,16 +147,21 @@ tolerations: []
 affinity: {}
 
 # -- Probes
+startupProbe:
+  httpGet:
+    path: /health
+    port: http
+  failureThreshold: 30
+  periodSeconds: 2
+
 livenessProbe:
   httpGet:
     path: /health
     port: http
-  initialDelaySeconds: 5
   periodSeconds: 15
 
 readinessProbe:
   httpGet:
     path: /health
     port: http
-  initialDelaySeconds: 3
   periodSeconds: 5
