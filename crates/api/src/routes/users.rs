@@ -174,7 +174,9 @@ fn verify_recovery_key(key: &str, hash: &str) -> Result<(), ApiError> {
     let parsed_hash = PasswordHash::new(hash)
         .map_err(|e| ApiError::Internal(format!("Invalid recovery key hash: {e}")))?;
 
+    // Recovery keys are uppercase; accept lowercase input (mobile convenience)
+    let normalized = key.to_uppercase();
     Argon2::default()
-        .verify_password(key.as_bytes(), &parsed_hash)
+        .verify_password(normalized.as_bytes(), &parsed_hash)
         .map_err(|_| ApiError::Unauthorized("Invalid username or recovery key".into()))
 }

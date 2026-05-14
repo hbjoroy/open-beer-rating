@@ -49,7 +49,7 @@ pub async fn find_user_by_username(
         r#"
         SELECT id, username, email_encrypted, recovery_key_hash, display_name, created_at, updated_at
         FROM users
-        WHERE username = $1
+        WHERE LOWER(username) = LOWER($1)
         "#,
     )
     .bind(username)

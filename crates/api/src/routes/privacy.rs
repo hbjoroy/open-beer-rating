@@ -195,8 +195,9 @@ pub async fn delete_account(
     use argon2::{Argon2, PasswordHash, PasswordVerifier};
     let parsed_hash = PasswordHash::new(&user.recovery_key_hash)
         .map_err(|e| ApiError::Internal(format!("Invalid recovery key hash: {e}")))?;
+    let normalized_key = req.recovery_key.to_uppercase();
     Argon2::default()
-        .verify_password(req.recovery_key.as_bytes(), &parsed_hash)
+        .verify_password(normalized_key.as_bytes(), &parsed_hash)
         .map_err(|_| ApiError::Unauthorized("Invalid recovery key".into()))?;
 
     // Hard delete all user data (cascades via FK constraints)

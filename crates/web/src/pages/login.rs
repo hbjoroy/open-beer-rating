@@ -62,7 +62,10 @@ pub fn LoginPage(
             leptos::task::spawn_local(async move {
                 match do_recovery_login(&username_val, &recovery_val).await {
                     Ok(tok) => {
-                        store_username(&username_val);
+                        // Store the DB-cased username (from JWT), not user input
+                        if let Some(name) = extract_username_from_jwt(&tok) {
+                            store_username(&name);
+                        }
                         set_info.set(Some("✅ Signed in! Setting up passkey on this device...".into()));
                         match do_passkey_register_after_recovery(&tok).await {
                             Ok(()) => {
@@ -98,7 +101,9 @@ pub fn LoginPage(
             leptos::task::spawn_local(async move {
                 match do_recovery_login(&username_val, &recovery_val).await {
                     Ok(tok) => {
-                        store_username(&username_val);
+                        if let Some(name) = extract_username_from_jwt(&tok) {
+                            store_username(&name);
+                        }
                         token.set(Some(tok));
                         on_success();
                     }
