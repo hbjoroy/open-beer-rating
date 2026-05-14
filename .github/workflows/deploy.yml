@@ -17,7 +17,7 @@ jobs:
         run: echo "short=$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
 
       - name: Checkout rocket-applications
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: hbjoroy/rocket-applications
           token: ${{ secrets.ROCKET_APPS_PAT }}
@@ -27,7 +27,7 @@ jobs:
           sed -i 's|^  tag:.*|  tag: "${{ steps.sha.outputs.short }}"|' values/open-drink-tasting/values.yaml
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.ROCKET_APPS_PAT }}
           commit-message: "deploy(open-drink-tasting): update image to ${{ steps.sha.outputs.short }}"
