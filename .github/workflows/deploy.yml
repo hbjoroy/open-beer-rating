@@ -1,0 +1,44 @@
+name: Deploy — Create PR on rocket-applications
+
+on:
+  workflow_run:
+    workflows: ["Build and Push Multi-Arch Image"]
+    types: [completed]
+    branches: [master]
+
+jobs:
+  create-deploy-pr:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get short SHA
+        id: sha
+        run: echo "short=$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout rocket-applications
+        uses: actions/checkout@v4
+        with:
+          repository: hbjoroy/rocket-applications
+          token: ${{ secrets.ROCKET_APPS_PAT }}
+
+      - name: Update image tag
+        run: |
+          sed -i 's|^  tag:.*|  tag: "${{ steps.sha.outputs.short }}"|' values/open-drink-tasting/values.yaml
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.ROCKET_APPS_PAT }}
+          commit-message: "deploy(open-drink-tasting): update image to ${{ steps.sha.outputs.short }}"
+          branch: deploy/open-drink-tasting-${{ steps.sha.outputs.short }}
+          title: "Deploy Open Drink Tasting — ${{ steps.sha.outputs.short }}"
+          body: |
+            Automated deployment PR.
+
+            **Image tag:** `${{ steps.sha.outputs.short }}`
+            **Source commit:** ${{ github.event.workflow_run.head_sha }}
+            **Build run:** ${{ github.event.workflow_run.html_url }}
+
+            Merge to deploy via ArgoCD.
+          labels: deploy
