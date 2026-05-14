@@ -17,7 +17,7 @@ pub fn LoginPage(
     let (info, set_info) = signal(Option::<String>::None);
     let (loading, set_loading) = signal(false);
     let (mode, set_mode) = signal(LoginMode::Choose);
-    let (username, set_username) = signal(String::new());
+    let (username, set_username) = signal(get_stored_username().unwrap_or_default());
     let (recovery_key, set_recovery_key) = signal(String::new());
     let on_success = Arc::new(on_success);
 
@@ -31,6 +31,10 @@ pub fn LoginPage(
             leptos::task::spawn_local(async move {
                 match do_passkey_login().await {
                     Ok(tok) => {
+                        // Store username from JWT for future login hints
+                        if let Some(name) = extract_username_from_jwt(&tok) {
+                            store_username(&name);
+                        }
                         token.set(Some(tok));
                         on_success();
                     }
@@ -58,6 +62,7 @@ pub fn LoginPage(
             leptos::task::spawn_local(async move {
                 match do_recovery_login(&username_val, &recovery_val).await {
                     Ok(tok) => {
+                        store_username(&username_val);
                         set_info.set(Some("✅ Signed in! Setting up passkey on this device...".into()));
                         match do_passkey_register_after_recovery(&tok).await {
                             Ok(()) => {
@@ -93,6 +98,7 @@ pub fn LoginPage(
             leptos::task::spawn_local(async move {
                 match do_recovery_login(&username_val, &recovery_val).await {
                     Ok(tok) => {
+                        store_username(&username_val);
                         token.set(Some(tok));
                         on_success();
                     }
@@ -424,4 +430,44 @@ async fn call_credentials_create(options_json: &str) -> Result<String, String> {
         .map_err(|e| crate::components::webauthn_errors::friendly_webauthn_error(&format!("{e:?}")))?;
 
     result.as_string().ok_or("No result from credentials.create".into())
+}
+
+/// Read stored username from localStorage.
+fn get_stored_username() -> Option<String> {
+    web_sys::window()
+        .and_then(|w| w.local_storage().ok())
+        .flatten()
+        .and_then(|s| s.get_item("open_tappd_username").ok())
+        .flatten()
+        .filter(|u| !u.is_empty())
+}
+
+/// Store username in localStorage for future passkey login hints.
+fn store_username(username: &str) {
+    if let Some(storage) = web_sys::window()
+        .and_then(|w| w.local_storage().ok())
+        .flatten()
+    {
+        let _ = storage.set_item("open_tappd_username", username);
+    }
+}
+
+/// Extract username from a JWT token (base64-decode the payload).
+fn extract_username_from_jwt(token: &str) -> Option<String> {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let payload = parts[1];
+    let padded = match payload.len() % 4 {
+        2 => format!("{payload}=="),
+        3 => format!("{payload}="),
+        _ => payload.to_string(),
+    };
+    let b64 = padded.replace('-', "+").replace('_', "/");
+    let window = web_sys::window()?;
+    let decoded = window.atob(&b64).ok()?;
+    let bytes: Vec<u8> = decoded.chars().map(|c| c as u8).collect();
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    value["username"].as_str().map(|s| s.to_string())
 }

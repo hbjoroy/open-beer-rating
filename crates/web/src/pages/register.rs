@@ -27,20 +27,22 @@ pub fn RegisterPage(
             leptos::task::spawn_local(async move {
                 match do_register(&username_val, email_opt.as_deref()).await {
                     Ok(reg_result) => {
-                        set_recovery_key.set(reg_result.recovery_key.clone());
-
-                        // Try passkey registration
+                        // Try passkey registration — required, not optional
                         match do_passkey_register(&reg_result.token).await {
                             Ok(()) => {
                                 // Passkey created — show recovery key
+                                set_recovery_key.set(reg_result.recovery_key.clone());
                                 set_phase.set(Phase::ShowRecoveryKey);
                                 token.set(Some(reg_result.token));
+
+                                // Remember username for future logins
+                                store_username(&username_val);
                             }
                             Err(e) => {
-                                // Passkey failed — still show recovery key but warn
-                                set_phase.set(Phase::ShowRecoveryKey);
-                                token.set(Some(reg_result.token));
-                                set_error.set(Some(format!("Passkey setup skipped: {e}. You can add one later in Profile.")));
+                                // Passkey failed/cancelled — abort, stay on form
+                                set_error.set(Some(format!(
+                                    "Passkey registration failed: {e}. Please try again — a passkey is required."
+                                )));
                             }
                         }
                         set_loading.set(false);
@@ -287,3 +289,12 @@ async fn call_credentials_create(options_json: &str) -> Result<String, String> {
     result.as_string().ok_or("No result from credentials.create".into())
 }
 
+/// Store username in localStorage for future passkey login hints.
+fn store_username(username: &str) {
+    if let Some(storage) = web_sys::window()
+        .and_then(|w| w.local_storage().ok())
+        .flatten()
+    {
+        let _ = storage.set_item("open_tappd_username", username);
+    }
+}
