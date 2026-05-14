@@ -24,6 +24,37 @@ pub fn App() -> impl IntoView {
     let (token, set_token) = signal(Option::<String>::None);
     let (active_session, set_active_session) = signal(Option::<ActiveSession>::None);
 
+    // Auto-login: if autologon flag is set and we have a username, try passkey login
+    {
+        let set_token = set_token;
+        let set_page = set_page;
+        leptos::task::spawn_local(async move {
+            use crate::pages::login::{get_autologon, get_stored_username, set_autologon,
+                do_passkey_login, extract_username_from_jwt, store_username};
+
+            if !get_autologon() || get_stored_username().is_none() {
+                return;
+            }
+
+            // Flip to false before attempting (prevents infinite retry on failure)
+            set_autologon(false);
+
+            match do_passkey_login().await {
+                Ok(tok) => {
+                    if let Some(name) = extract_username_from_jwt(&tok) {
+                        store_username(&name);
+                    }
+                    set_autologon(true);
+                    set_token.set(Some(tok));
+                    set_page.set(Page::BeerList);
+                }
+                Err(_) => {
+                    // Auto-login failed silently — user can log in manually
+                }
+            }
+        });
+    }
+
     let nav_class = "nav-link";
 
     let on_navigate = {

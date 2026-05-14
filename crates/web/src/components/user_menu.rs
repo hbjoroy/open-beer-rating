@@ -64,7 +64,7 @@ pub fn UserMenu(
                             <a class="dropdown-item" on:click=move |_| { close_menu(); on_nav_tastings("my-tastings"); }>"📝 My Tastings"</a>
                             <div class="dropdown-divider"></div>
                             <a class="dropdown-item" on:click=move |_| { close_menu(); on_nav_profile("profile"); }>"⚙️ Profile"</a>
-                            <a class="dropdown-item" on:click=move |_| { close_menu(); set_token.set(None); }>"🚪 Sign Out"</a>
+                            <a class="dropdown-item" on:click=move |_| { close_menu(); crate::pages::login::set_autologon(false); set_token.set(None); }>"🚪 Sign Out"</a>
                         </div>
                     }.into_any()
                 } else {

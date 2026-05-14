@@ -35,6 +35,7 @@ pub fn LoginPage(
                         if let Some(name) = extract_username_from_jwt(&tok) {
                             store_username(&name);
                         }
+                        set_autologon(true);
                         token.set(Some(tok));
                         on_success();
                     }
@@ -69,6 +70,7 @@ pub fn LoginPage(
                         set_info.set(Some("✅ Signed in! Setting up passkey on this device...".into()));
                         match do_passkey_register_after_recovery(&tok).await {
                             Ok(()) => {
+                                set_autologon(true);
                                 set_info.set(Some("✅ Passkey registered on this device!".into()));
                             }
                             Err(e) => {
@@ -230,7 +232,7 @@ pub fn LoginPage(
     }
 }
 
-async fn do_passkey_login() -> Result<String, String> {
+pub async fn do_passkey_login() -> Result<String, String> {
     // Step 1: Get challenge
     let resp = gloo_net::http::Request::post("/api/passkeys/auth/start")
         .send()
@@ -438,7 +440,7 @@ async fn call_credentials_create(options_json: &str) -> Result<String, String> {
 }
 
 /// Read stored username from localStorage.
-fn get_stored_username() -> Option<String> {
+pub fn get_stored_username() -> Option<String> {
     web_sys::window()
         .and_then(|w| w.local_storage().ok())
         .flatten()
@@ -448,7 +450,7 @@ fn get_stored_username() -> Option<String> {
 }
 
 /// Store username in localStorage for future passkey login hints.
-fn store_username(username: &str) {
+pub fn store_username(username: &str) {
     if let Some(storage) = web_sys::window()
         .and_then(|w| w.local_storage().ok())
         .flatten()
@@ -458,7 +460,7 @@ fn store_username(username: &str) {
 }
 
 /// Extract username from a JWT token (base64-decode the payload).
-fn extract_username_from_jwt(token: &str) -> Option<String> {
+pub fn extract_username_from_jwt(token: &str) -> Option<String> {
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
         return None;
@@ -475,4 +477,25 @@ fn extract_username_from_jwt(token: &str) -> Option<String> {
     let bytes: Vec<u8> = decoded.chars().map(|c| c as u8).collect();
     let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
     value["username"].as_str().map(|s| s.to_string())
+}
+
+/// Check if autologon is enabled in localStorage.
+pub fn get_autologon() -> bool {
+    web_sys::window()
+        .and_then(|w| w.local_storage().ok())
+        .flatten()
+        .and_then(|s| s.get_item("open_tappd_autologon").ok())
+        .flatten()
+        .map(|v| v == "true")
+        .unwrap_or(false)
+}
+
+/// Set the autologon flag in localStorage.
+pub fn set_autologon(enabled: bool) {
+    if let Some(storage) = web_sys::window()
+        .and_then(|w| w.local_storage().ok())
+        .flatten()
+    {
+        let _ = storage.set_item("open_tappd_autologon", if enabled { "true" } else { "false" });
+    }
 }

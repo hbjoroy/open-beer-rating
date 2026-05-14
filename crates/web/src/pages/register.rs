@@ -35,8 +35,9 @@ pub fn RegisterPage(
                                 set_phase.set(Phase::ShowRecoveryKey);
                                 token.set(Some(reg_result.token));
 
-                                // Remember username for future logins
+                                // Remember username and enable autologon
                                 store_username(&username_val);
+                                crate::pages::login::set_autologon(true);
                             }
                             Err(e) => {
                                 // Passkey failed/cancelled — clean up orphaned account
