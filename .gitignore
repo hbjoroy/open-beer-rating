@@ -22,6 +22,5 @@ sqlx-data.json
 *.cer
 *.crt
 
-# Helm dependency charts (downloaded via helm dependency update)
-helm/*/charts/
+# Helm dependency chart tarballs (keep charts/ directory for ArgoCD)
 helm/*/*.tgz
