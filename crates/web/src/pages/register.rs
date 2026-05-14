@@ -22,7 +22,11 @@ pub fn RegisterPage(
 
             let username_val = username.get();
             let email_val = email.get();
-            let email_opt = if email_val.is_empty() { None } else { Some(email_val) };
+            let email_opt = if email_val.is_empty() {
+                None
+            } else {
+                Some(email_val)
+            };
 
             leptos::task::spawn_local(async move {
                 match do_register(&username_val, email_opt.as_deref()).await {
@@ -159,12 +163,20 @@ async fn do_register(username: &str, email: Option<&str>) -> Result<RegisterResu
         let data: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
         Ok(RegisterResult {
             token: data["token"].as_str().ok_or("No token")?.to_string(),
-            recovery_key: data["recovery_key"].as_str().ok_or("No recovery key")?.to_string(),
+            recovery_key: data["recovery_key"]
+                .as_str()
+                .ok_or("No recovery key")?
+                .to_string(),
         })
     } else {
-        let data: serde_json::Value = resp.json().await
+        let data: serde_json::Value = resp
+            .json()
+            .await
             .unwrap_or(serde_json::json!({"error": "Registration failed"}));
-        Err(data["error"].as_str().unwrap_or("Registration failed").to_string())
+        Err(data["error"]
+            .as_str()
+            .unwrap_or("Registration failed")
+            .to_string())
     }
 }
 
@@ -180,14 +192,22 @@ async fn do_passkey_register(jwt_token: &str) -> Result<(), String> {
     if !resp.ok() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Failed to start passkey registration (HTTP {status}): {body}"));
+        return Err(format!(
+            "Failed to start passkey registration (HTTP {status}): {body}"
+        ));
     }
 
     let data: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
     let challenge_options = &data["challenge"];
 
     // Log the full server response for debugging
-    web_sys::console::log_1(&format!("[passkey] Server challenge response: {}", serde_json::to_string_pretty(challenge_options).unwrap_or_default()).into());
+    web_sys::console::log_1(
+        &format!(
+            "[passkey] Server challenge response: {}",
+            serde_json::to_string_pretty(challenge_options).unwrap_or_default()
+        )
+        .into(),
+    );
 
     // Step 2: Call navigator.credentials.create() via JS interop
     let options_json = challenge_options.to_string();
@@ -211,7 +231,9 @@ async fn do_passkey_register(jwt_token: &str) -> Result<(), String> {
     } else {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        Err(format!("Failed to complete passkey registration (HTTP {status}): {body}"))
+        Err(format!(
+            "Failed to complete passkey registration (HTTP {status}): {body}"
+        ))
     }
 }
 
@@ -283,12 +305,18 @@ async fn call_credentials_create(options_json: &str) -> Result<String, String> {
 
     // ASI fix: "return\n(...)" is parsed as "return;" — must be on same line
     let eval_fn = Function::new_no_args(&format!("return {}", js_code.trim()));
-    let promise = eval_fn.call0(&JsValue::NULL).map_err(|e| format!("JS error: {e:?}"))?;
+    let promise = eval_fn
+        .call0(&JsValue::NULL)
+        .map_err(|e| format!("JS error: {e:?}"))?;
     let result = JsFuture::from(js_sys::Promise::from(promise))
         .await
-        .map_err(|e| crate::components::webauthn_errors::friendly_webauthn_error(&format!("{e:?}")))?;
+        .map_err(|e| {
+            crate::components::webauthn_errors::friendly_webauthn_error(&format!("{e:?}"))
+        })?;
 
-    result.as_string().ok_or("No result from credentials.create".into())
+    result
+        .as_string()
+        .ok_or("No result from credentials.create".into())
 }
 
 /// Store username in localStorage for future passkey login hints.

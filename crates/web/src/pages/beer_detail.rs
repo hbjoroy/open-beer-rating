@@ -217,10 +217,7 @@ async fn fetch_beer_with_brewery(id: &str) -> Result<(BeerDetail, BreweryInfo), 
         return Err("Beer not found".to_string());
     }
 
-    let mut beer: BeerDetail = resp
-        .json()
-        .await
-        .map_err(|e| format!("Parse error: {e}"))?;
+    let mut beer: BeerDetail = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
 
     // Fetch tastings aggregate
     if let Ok(agg_resp) = gloo_net::http::Request::get(&format!("/api/beers/{id}/tastings"))
@@ -236,11 +233,10 @@ async fn fetch_beer_with_brewery(id: &str) -> Result<(BeerDetail, BreweryInfo), 
         }
     }
 
-    let brewery_resp =
-        gloo_net::http::Request::get(&format!("/api/breweries/{}", beer.brewery_id))
-            .send()
-            .await
-            .map_err(|e| format!("Network error: {e}"))?;
+    let brewery_resp = gloo_net::http::Request::get(&format!("/api/breweries/{}", beer.brewery_id))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
 
     let brewery: BreweryInfo = if brewery_resp.ok() {
         brewery_resp

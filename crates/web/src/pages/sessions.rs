@@ -78,7 +78,13 @@ pub fn SessionBrowserPage(
         let desc = new_desc.get();
 
         leptos::task::spawn_local(async move {
-            match create_session(&tok, &name, if desc.is_empty() { None } else { Some(&desc) }).await {
+            match create_session(
+                &tok,
+                &name,
+                if desc.is_empty() { None } else { Some(&desc) },
+            )
+            .await
+            {
                 Ok(session) => {
                     set_success.set(Some(format!("Session '{}' created!", session.name)));
                     set_active_session.set(Some(ActiveSession {
@@ -268,7 +274,10 @@ async fn create_session(
             .map_err(|e| format!("Parse error: {e}"))
     } else {
         let data: serde_json::Value = resp.json().await.unwrap_or_default();
-        Err(data["error"].as_str().unwrap_or("Failed to create session").to_string())
+        Err(data["error"]
+            .as_str()
+            .unwrap_or("Failed to create session")
+            .to_string())
     }
 }
 

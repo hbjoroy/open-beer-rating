@@ -189,17 +189,18 @@ pub fn RateBeerPage(
                 &beer.id,
                 score,
                 serving.as_deref(),
-                if notes_val.is_empty() { None } else { Some(&notes_val) },
+                if notes_val.is_empty() {
+                    None
+                } else {
+                    Some(&notes_val)
+                },
                 location_id.as_deref(),
                 session_id.as_deref(),
             )
             .await
             {
                 Ok(_) => {
-                    set_success.set(Some(format!(
-                        "Rated {} — {}/10! 🎉",
-                        beer.name, score
-                    )));
+                    set_success.set(Some(format!("Rated {} — {}/10! 🎉", beer.name, score)));
                     set_selected_beer.set(None);
                     set_selected_score.set(None);
                     set_selected_serving.set(None);
@@ -527,7 +528,10 @@ async fn create_session(token: &str, name: &str) -> Result<SessionItem, String> 
             .map_err(|e| format!("Parse error: {e}"))
     } else {
         let data: serde_json::Value = resp.json().await.unwrap_or_default();
-        Err(data["error"].as_str().unwrap_or("Failed to create session").to_string())
+        Err(data["error"]
+            .as_str()
+            .unwrap_or("Failed to create session")
+            .to_string())
     }
 }
 

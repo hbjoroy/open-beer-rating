@@ -67,14 +67,18 @@ pub fn LoginPage(
                         if let Some(name) = extract_username_from_jwt(&tok) {
                             store_username(&name);
                         }
-                        set_info.set(Some("✅ Signed in! Setting up passkey on this device...".into()));
+                        set_info.set(Some(
+                            "✅ Signed in! Setting up passkey on this device...".into(),
+                        ));
                         match do_passkey_register_after_recovery(&tok).await {
                             Ok(()) => {
                                 set_autologon(true);
                                 set_info.set(Some("✅ Passkey registered on this device!".into()));
                             }
                             Err(e) => {
-                                set_info.set(Some(format!("⚠️ Signed in, but passkey setup skipped: {e}")));
+                                set_info.set(Some(format!(
+                                    "⚠️ Signed in, but passkey setup skipped: {e}"
+                                )));
                             }
                         }
                         token.set(Some(tok));
@@ -261,11 +265,19 @@ pub async fn do_passkey_login() -> Result<String, String> {
 
     if resp.ok() {
         let data: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
-        data["token"].as_str().map(|s| s.to_string()).ok_or("No token".into())
+        data["token"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or("No token".into())
     } else {
-        let data: serde_json::Value = resp.json().await
+        let data: serde_json::Value = resp
+            .json()
+            .await
             .unwrap_or(serde_json::json!({"error": "Authentication failed"}));
-        Err(data["error"].as_str().unwrap_or("Authentication failed").to_string())
+        Err(data["error"]
+            .as_str()
+            .unwrap_or("Authentication failed")
+            .to_string())
     }
 }
 
@@ -285,9 +297,14 @@ async fn do_recovery_login(username: &str, recovery_key: &str) -> Result<String,
 
     if resp.ok() {
         let data: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
-        data["token"].as_str().map(|s| s.to_string()).ok_or("No token".into())
+        data["token"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or("No token".into())
     } else {
-        let data: serde_json::Value = resp.json().await
+        let data: serde_json::Value = resp
+            .json()
+            .await
             .unwrap_or(serde_json::json!({"error": "Login failed"}));
         Err(data["error"].as_str().unwrap_or("Login failed").to_string())
     }
@@ -318,7 +335,11 @@ async fn do_passkey_register_after_recovery(jwt_token: &str) -> Result<(), Strin
         .await
         .map_err(|e| format!("Network error: {e}"))?;
 
-    if resp.ok() { Ok(()) } else { Err("Failed to register passkey".into()) }
+    if resp.ok() {
+        Ok(())
+    } else {
+        Err("Failed to register passkey".into())
+    }
 }
 
 async fn call_credentials_get(options_json: &str) -> Result<String, String> {
@@ -372,12 +393,18 @@ async fn call_credentials_get(options_json: &str) -> Result<String, String> {
     );
 
     let eval_fn = Function::new_no_args(&format!("return {}", js_code.trim()));
-    let promise = eval_fn.call0(&JsValue::NULL).map_err(|e| format!("JS error: {e:?}"))?;
+    let promise = eval_fn
+        .call0(&JsValue::NULL)
+        .map_err(|e| format!("JS error: {e:?}"))?;
     let result = JsFuture::from(js_sys::Promise::from(promise))
         .await
-        .map_err(|e| crate::components::webauthn_errors::friendly_webauthn_error(&format!("{e:?}")))?;
+        .map_err(|e| {
+            crate::components::webauthn_errors::friendly_webauthn_error(&format!("{e:?}"))
+        })?;
 
-    result.as_string().ok_or("No result from credentials.get".into())
+    result
+        .as_string()
+        .ok_or("No result from credentials.get".into())
 }
 
 async fn call_credentials_create(options_json: &str) -> Result<String, String> {
@@ -431,12 +458,18 @@ async fn call_credentials_create(options_json: &str) -> Result<String, String> {
     );
 
     let eval_fn = Function::new_no_args(&format!("return {}", js_code.trim()));
-    let promise = eval_fn.call0(&JsValue::NULL).map_err(|e| format!("JS error: {e:?}"))?;
+    let promise = eval_fn
+        .call0(&JsValue::NULL)
+        .map_err(|e| format!("JS error: {e:?}"))?;
     let result = JsFuture::from(js_sys::Promise::from(promise))
         .await
-        .map_err(|e| crate::components::webauthn_errors::friendly_webauthn_error(&format!("{e:?}")))?;
+        .map_err(|e| {
+            crate::components::webauthn_errors::friendly_webauthn_error(&format!("{e:?}"))
+        })?;
 
-    result.as_string().ok_or("No result from credentials.create".into())
+    result
+        .as_string()
+        .ok_or("No result from credentials.create".into())
 }
 
 /// Read stored username from localStorage.
@@ -496,6 +529,9 @@ pub fn set_autologon(enabled: bool) {
         .and_then(|w| w.local_storage().ok())
         .flatten()
     {
-        let _ = storage.set_item("open_tappd_autologon", if enabled { "true" } else { "false" });
+        let _ = storage.set_item(
+            "open_tappd_autologon",
+            if enabled { "true" } else { "false" },
+        );
     }
 }

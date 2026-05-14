@@ -32,9 +32,7 @@ pub fn UserMenu(
 ) -> impl IntoView {
     let (menu_open, set_menu_open) = signal(false);
 
-    let username = Memo::new(move |_| {
-        token.get().and_then(|t| decode_username(&t))
-    });
+    let username = Memo::new(move |_| token.get().and_then(|t| decode_username(&t)));
 
     let toggle_menu = move |_| {
         set_menu_open.update(|open| *open = !*open);

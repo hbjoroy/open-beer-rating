@@ -60,7 +60,11 @@ pub fn AddBeerPage(token: ReadSignal<Option<String>>) -> impl IntoView {
                 match create_brewery_api(
                     &tok,
                     &bname,
-                    if bcountry.is_empty() { None } else { Some(&bcountry) },
+                    if bcountry.is_empty() {
+                        None
+                    } else {
+                        Some(&bcountry)
+                    },
                     if bcity.is_empty() { None } else { Some(&bcity) },
                 )
                 .await
@@ -98,9 +102,17 @@ pub fn AddBeerPage(token: ReadSignal<Option<String>>) -> impl IntoView {
                 &tok,
                 &bid,
                 &name,
-                if style_val.is_empty() { None } else { Some(&style_val) },
+                if style_val.is_empty() {
+                    None
+                } else {
+                    Some(&style_val)
+                },
                 abv_parsed,
-                if desc_val.is_empty() { None } else { Some(&desc_val) },
+                if desc_val.is_empty() {
+                    None
+                } else {
+                    Some(&desc_val)
+                },
             )
             .await
             {
@@ -309,8 +321,7 @@ async fn create_brewery_api(
         .map_err(|e| format!("Network error: {e}"))?;
 
     if resp.ok() {
-        let data: serde_json::Value =
-            resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
+        let data: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
         data["id"]
             .as_str()
             .map(|s| s.to_string())
@@ -359,12 +370,8 @@ async fn create_beer_api(
         .map_err(|e| format!("Network error: {e}"))?;
 
     if resp.ok() {
-        let data: serde_json::Value =
-            resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
-        Ok(data["name"]
-            .as_str()
-            .unwrap_or("Beer")
-            .to_string())
+        let data: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
+        Ok(data["name"].as_str().unwrap_or("Beer").to_string())
     } else {
         let data: serde_json::Value = resp
             .json()

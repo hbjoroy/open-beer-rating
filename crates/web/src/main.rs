@@ -1,6 +1,6 @@
 mod app;
-mod pages;
 mod components;
+mod pages;
 
 fn main() {
     #[cfg(not(target_arch = "wasm32"))]

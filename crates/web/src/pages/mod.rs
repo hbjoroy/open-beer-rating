@@ -1,10 +1,10 @@
+pub mod add_beer;
+pub mod beer_detail;
+pub mod beer_list;
 pub mod home;
 pub mod login;
-pub mod register;
-pub mod beer_list;
-pub mod beer_detail;
-pub mod add_beer;
+pub mod my_tastings;
 pub mod profile;
 pub mod rate_beer;
+pub mod register;
 pub mod sessions;
-pub mod my_tastings;

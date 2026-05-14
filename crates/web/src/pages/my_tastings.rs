@@ -172,13 +172,12 @@ async fn fetch_tastings(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<TastingResponse>, String> {
-    let resp = gloo_net::http::Request::get(&format!(
-        "/api/tastings?limit={limit}&offset={offset}"
-    ))
-    .header("Authorization", &format!("Bearer {token}"))
-    .send()
-    .await
-    .map_err(|e| format!("Network error: {e}"))?;
+    let resp =
+        gloo_net::http::Request::get(&format!("/api/tastings?limit={limit}&offset={offset}"))
+            .header("Authorization", &format!("Bearer {token}"))
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {e}"))?;
 
     if resp.ok() {
         resp.json::<Vec<TastingResponse>>()
