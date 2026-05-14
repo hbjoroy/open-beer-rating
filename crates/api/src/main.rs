@@ -14,6 +14,13 @@ async fn main() {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
 
+    if let Err(e) = run().await {
+        tracing::error!("Fatal: {e}");
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let database_url =
         std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
@@ -32,11 +39,12 @@ async fn main() {
     let webauthn_config = WebAuthnConfig::new(&rp_id, &rp_origin);
     let webauthn = WebAuthn::new(webauthn_config);
 
+    tracing::info!("Connecting to database...");
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
-        .await
-        .expect("Failed to connect to PostgreSQL");
+        .await?;
+    tracing::info!("Database connected");
 
     match sqlx::migrate!("../../migrations").run(&pool).await {
         Ok(()) => tracing::info!("Migrations applied successfully"),
@@ -64,6 +72,8 @@ async fn main() {
     let addr = SocketAddr::new(host.parse().unwrap(), port);
     tracing::info!("Starting server on {}", addr);
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
 }
