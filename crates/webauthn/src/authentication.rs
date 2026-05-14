@@ -16,17 +16,34 @@ pub(crate) struct AuthenticationState {
 }
 
 /// Begin authentication: generate challenge and request options.
-/// Uses discoverable credentials (empty allowCredentials).
+/// If `allow_credentials` is provided, only those credentials are accepted (scoped login).
+/// If empty, uses discoverable credentials (browser shows all for this rpId).
 pub(crate) fn start_authentication(
     config: &WebAuthnConfig,
+    allow_credentials: Vec<crate::credential::CredentialId>,
 ) -> Result<(RequestChallengeResponse, AuthenticationState), WebAuthnError> {
     let challenge = crypto::generate_challenge();
+
+    let allow = if allow_credentials.is_empty() {
+        Some(vec![]) // empty = discoverable (browser picks)
+    } else {
+        Some(
+            allow_credentials
+                .iter()
+                .map(|id| crate::proto::CredentialDescriptor {
+                    type_: "public-key".into(),
+                    id: base64url::encode(id),
+                    transports: None,
+                })
+                .collect(),
+        )
+    };
 
     let response = RequestChallengeResponse {
         challenge: base64url::encode(&challenge),
         timeout: Some(300_000),
         rp_id: config.rp_id.clone(),
-        allow_credentials: Some(vec![]), // empty = discoverable
+        allow_credentials: allow,
         user_verification: "required".into(),
     };
 

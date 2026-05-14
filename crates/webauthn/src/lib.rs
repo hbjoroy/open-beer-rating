@@ -93,9 +93,10 @@ impl WebAuthn {
     }
 
     /// Start a passkey authentication ceremony (discoverable credentials).
-    pub fn start_authentication(&self) -> Result<(RequestChallengeResponse, Vec<u8>), WebAuthnError> {
+    /// If `allow_credentials` is non-empty, only those credential IDs are offered to the user.
+    pub fn start_authentication(&self, allow_credentials: Vec<CredentialId>) -> Result<(RequestChallengeResponse, Vec<u8>), WebAuthnError> {
         self.cleanup_expired();
-        let (challenge_response, state) = authentication::start_authentication(&self.config)?;
+        let (challenge_response, state) = authentication::start_authentication(&self.config, allow_credentials)?;
         let challenge_key = state.challenge.clone();
 
         let mut cache = self.auth_challenges.lock().map_err(|_| WebAuthnError::Internal("lock poisoned".into()))?;

@@ -237,8 +237,14 @@ pub fn LoginPage(
 }
 
 pub async fn do_passkey_login() -> Result<String, String> {
-    // Step 1: Get challenge
+    // Step 1: Get challenge, scoped to stored username if available
+    let username = get_stored_username();
+    let body = serde_json::json!({ "username": username });
+
     let resp = gloo_net::http::Request::post("/api/passkeys/auth/start")
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+        .map_err(|e| format!("Request error: {e}"))?
         .send()
         .await
         .map_err(|e| format!("Network error: {e}"))?;

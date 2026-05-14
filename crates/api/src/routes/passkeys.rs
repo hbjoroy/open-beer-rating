@@ -27,9 +27,10 @@ pub async fn register_start(
 ) -> Result<Json<PasskeyRegisterStartResponse>, ApiError> {
     tracing::debug!("Passkey register/start for user {} ({})", auth.user_id, auth.username);
 
+    // List existing credentials to pass as excludeCredentials.
+    // This tells the authenticator not to create duplicates.
     let existing = db::passkeys::list_passkeys(&state.pool, auth.user_id).await?;
     let exclude: Vec<Vec<u8>> = existing.iter().map(|p| p.credential_id.clone()).collect();
-    tracing::debug!("Excluding {} existing credentials", exclude.len());
 
     let ccr = state
         .webauthn
@@ -38,8 +39,6 @@ pub async fn register_start(
 
     let challenge_json = serde_json::to_value(&ccr)
         .map_err(|e| ApiError::Internal(format!("JSON serialize: {e}")))?;
-
-    tracing::debug!("Passkey challenge response: {}", serde_json::to_string(&challenge_json).unwrap_or_default());
 
     Ok(Json(PasskeyRegisterStartResponse {
         challenge: challenge_json,
@@ -73,6 +72,12 @@ pub async fn register_finish(
         .finish_registration(&req.credential)
         .map_err(|e| ApiError::Validation(format!("Passkey registration failed: {e}")))?;
 
+    // Remove all previous passkeys — only the latest registration is valid
+    let deleted = db::passkeys::delete_all_passkeys(&state.pool, auth.user_id).await?;
+    if deleted > 0 {
+        tracing::info!("Deleted {} old passkey(s) for user {}", deleted, auth.user_id);
+    }
+
     // Serialize the StoredCredential to JSON for DB storage
     let cred_json = serde_json::to_vec(&stored_cred)
         .map_err(|e| ApiError::Internal(format!("serialize credential: {e}")))?;
@@ -101,6 +106,12 @@ pub async fn register_finish(
 
 // --- Authentication (unauthenticated: sign in with passkey) ---
 
+#[derive(Debug, Deserialize)]
+pub struct PasskeyAuthStartRequest {
+    #[serde(default)]
+    pub username: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct PasskeyAuthStartResponse {
     pub challenge: serde_json::Value,
@@ -108,12 +119,26 @@ pub struct PasskeyAuthStartResponse {
 }
 
 /// POST /api/passkeys/auth/start — begin passkey authentication
+/// Accepts optional `username` to scope allowCredentials to that user's passkeys.
 pub async fn auth_start(
     State(state): State<AppState>,
+    Json(req): Json<PasskeyAuthStartRequest>,
 ) -> Result<Json<PasskeyAuthStartResponse>, ApiError> {
+    // If username provided, look up their credential IDs to scope the picker
+    let allow_credentials = if let Some(ref username) = req.username {
+        if let Some(user) = db::users::find_user_by_username(&state.pool, username).await? {
+            let passkeys = db::passkeys::list_passkeys(&state.pool, user.id).await?;
+            passkeys.iter().map(|p| p.credential_id.clone()).collect()
+        } else {
+            vec![] // unknown user — fall back to discoverable
+        }
+    } else {
+        vec![] // no username — discoverable (browser shows all)
+    };
+
     let (rcr, challenge_key) = state
         .webauthn
-        .start_authentication()
+        .start_authentication(allow_credentials)
         .map_err(|e| ApiError::Internal(format!("WebAuthn auth start failed: {e}")))?;
 
     let challenge_json = serde_json::to_value(&rcr)
@@ -135,17 +160,30 @@ pub async fn auth_finish(
 ) -> Result<Json<crate::routes::users::LoginResponse>, ApiError> {
     // Extract userHandle to find the user
     let user_handle = WebAuthn::get_user_handle(&response)
-        .ok_or_else(|| ApiError::Unauthorized("No userHandle in assertion".into()))?;
+        .ok_or_else(|| {
+            tracing::warn!("Passkey auth: no userHandle in assertion response");
+            ApiError::Unauthorized("No userHandle in assertion".into())
+        })?;
+
+    tracing::debug!("Passkey auth: userHandle bytes = {:?} (len={})", user_handle, user_handle.len());
 
     // Parse user UUID from userHandle bytes
     let user_id = Uuid::from_slice(user_handle)
-        .map_err(|_| ApiError::Unauthorized("Invalid userHandle format".into()))?;
+        .map_err(|e| {
+            tracing::warn!("Passkey auth: invalid userHandle format: {} (bytes: {:?})", e, user_handle);
+            ApiError::Unauthorized("Invalid userHandle format".into())
+        })?;
+
+    tracing::info!("Passkey auth: resolved user_id = {}", user_id);
 
     // Load user's stored credentials
     let passkey_rows = db::passkeys::list_passkeys(&state.pool, user_id).await?;
     if passkey_rows.is_empty() {
-        return Err(ApiError::Unauthorized("No passkeys registered".into()));
+        tracing::warn!("Passkey auth: no passkeys in DB for user_id={}", user_id);
+        return Err(ApiError::Unauthorized("No passkeys registered. Use 'New Device' to set up this device.".into()));
     }
+
+    tracing::debug!("Passkey auth: found {} stored passkey(s) for user {}", passkey_rows.len(), user_id);
 
     let stored_creds: Vec<StoredCredential> = passkey_rows
         .iter()
@@ -159,7 +197,10 @@ pub async fn auth_finish(
     let auth_result = state
         .webauthn
         .finish_authentication(&response, &stored_creds)
-        .map_err(|e| ApiError::Unauthorized(format!("Passkey authentication failed: {e}")))?;
+        .map_err(|e| {
+            tracing::warn!("Passkey auth failed for user {}: {}", user_id, e);
+            ApiError::Unauthorized("Passkey outdated. Remove old passkeys from device settings, then use 'New Device' to re-register.".into())
+        })?;
 
     // Update counter for the matched credential
     if let Some(row) = passkey_rows

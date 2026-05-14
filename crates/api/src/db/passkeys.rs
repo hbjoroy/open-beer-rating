@@ -111,3 +111,15 @@ pub async fn count_passkeys(
             .await?;
     Ok(row.0)
 }
+
+/// Delete all passkeys for a user (used before registering a new one).
+pub async fn delete_all_passkeys(
+    pool: &PgPool,
+    user_id: Uuid,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM user_passkeys WHERE user_id = $1")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected())
+}
