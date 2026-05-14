@@ -39,7 +39,8 @@ pub fn RegisterPage(
                                 store_username(&username_val);
                             }
                             Err(e) => {
-                                // Passkey failed/cancelled — abort, stay on form
+                                // Passkey failed/cancelled — clean up orphaned account
+                                let _ = abort_registration(&reg_result.token).await;
                                 set_error.set(Some(format!(
                                     "Passkey registration failed: {e}. Please try again — a passkey is required."
                                 )));
@@ -297,4 +298,13 @@ fn store_username(username: &str) {
     {
         let _ = storage.set_item("open_tappd_username", username);
     }
+}
+
+/// Call the server to delete the orphaned account after failed passkey registration.
+async fn abort_registration(jwt_token: &str) -> Result<(), String> {
+    let _ = gloo_net::http::Request::post("/api/users/register/abort")
+        .header("Authorization", &format!("Bearer {jwt_token}"))
+        .send()
+        .await;
+    Ok(())
 }

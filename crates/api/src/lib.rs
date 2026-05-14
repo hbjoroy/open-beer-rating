@@ -11,6 +11,7 @@ pub fn create_router(state: state::AppState) -> Router {
         .route("/health", get(routes::health::health_check))
         // Users
         .route("/api/users/register", post(routes::users::register))
+        .route("/api/users/register/abort", post(routes::users::abort_registration))
         .route("/api/users/login", post(routes::users::login))
         // Passkeys
         .route("/api/passkeys/register/start", post(routes::passkeys::register_start))

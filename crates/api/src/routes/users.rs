@@ -87,6 +87,32 @@ pub async fn register(
     ))
 }
 
+/// POST /api/users/register/abort — delete account if passkey was never registered.
+/// Called when passkey creation fails/is cancelled during registration.
+pub async fn abort_registration(
+    State(state): State<AppState>,
+    auth: jwt::AuthUser,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    // Only allow deletion if the account has no passkeys (incomplete registration)
+    let passkey_count = db::passkeys::count_passkeys(&state.pool, auth.user_id).await
+        .map_err(|e| ApiError::Internal(format!("DB error: {e}")))?;
+
+    if passkey_count > 0 {
+        return Err(ApiError::Validation(
+            "Cannot abort: account already has passkeys registered".into(),
+        ));
+    }
+
+    db::privacy::delete_user_data(&state.pool, auth.user_id).await
+        .map_err(|e| ApiError::Internal(format!("DB error: {e}")))?;
+
+    tracing::info!("Aborted registration for user {} (no passkeys)", auth.user_id);
+
+    Ok(Json(serde_json::json!({
+        "message": "Registration aborted, account deleted"
+    })))
+}
+
 /// POST /api/users/login — recovery login with username + recovery key
 pub async fn login(
     State(state): State<AppState>,
