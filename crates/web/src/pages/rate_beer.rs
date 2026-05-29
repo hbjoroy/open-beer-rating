@@ -32,6 +32,18 @@ struct SessionItem {
     ended_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct BreweryOption {
+    id: String,
+    name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CreatedBeerResponse {
+    id: String,
+    name: String,
+}
+
 const SERVING_STYLES: &[(&str, &str)] = &[
     ("draft", "🍺 Draft"),
     ("bottle", "🍾 Bottle"),
@@ -54,22 +66,33 @@ pub fn RateBeerPage(
     let (search_results, set_search_results) = signal(Vec::<BeerSearchResult>::new());
     let (selected_beer, set_selected_beer) = signal(Option::<BeerSearchResult>::None);
     let (selected_score, set_selected_score) = signal(Option::<i32>::None);
-    let (selected_serving, set_selected_serving) = signal(Option::<String>::None);
+    let (selected_serving, set_selected_serving) = signal(get_last_serving());
     let (notes, set_notes) = signal(String::new());
     let (submitting, set_submitting) = signal(false);
     let (error, set_error) = signal(Option::<String>::None);
     let (success, set_success) = signal(Option::<String>::None);
     let (searching, set_searching) = signal(false);
 
-    // Location state
+    // Location state — restore last used
     let (locations, set_locations) = signal(Vec::<LocationItem>::new());
-    let (selected_location, set_selected_location) = signal(Option::<String>::None);
+    let (selected_location, set_selected_location) = signal(get_last_location());
 
     // Session state
     let (sessions, set_sessions) = signal(Vec::<SessionItem>::new());
     let (show_create_session, set_show_create_session) = signal(false);
     let (new_session_name, set_new_session_name) = signal(String::new());
     let (creating_session, set_creating_session) = signal(false);
+
+    // Inline beer creation state
+    let (show_quick_add, set_show_quick_add) = signal(false);
+    let (quick_beer_name, set_quick_beer_name) = signal(String::new());
+    let (quick_brewery_id, set_quick_brewery_id) = signal(String::new());
+    let (quick_new_brewery, set_quick_new_brewery) = signal(false);
+    let (quick_brewery_name, set_quick_brewery_name) = signal(String::new());
+    let (quick_style, set_quick_style) = signal(String::new());
+    let (quick_abv, set_quick_abv) = signal(String::new());
+    let (adding_beer, set_adding_beer) = signal(false);
+    let (breweries, set_breweries) = signal(Vec::<BreweryOption>::new());
 
     // Load locations and sessions when token is available
     {
@@ -95,9 +118,12 @@ pub fn RateBeerPage(
             return;
         }
         set_searching.set(true);
+        set_show_quick_add.set(false);
         leptos::task::spawn_local(async move {
             match search_beers(&query).await {
-                Ok(results) => set_search_results.set(results),
+                Ok(results) => {
+                    set_search_results.set(results);
+                }
                 Err(e) => set_error.set(Some(e)),
             }
             set_searching.set(false);
@@ -136,17 +162,122 @@ pub fn RateBeerPage(
             Some(t) => t,
             None => return,
         };
-        // Join and set active
         let id2 = id.clone();
         let name2 = name.clone();
         leptos::task::spawn_local(async move {
-            // Try to join (harmless if already a participant)
             let _ = join_session(&tok, &id2).await;
             set_active_session.set(Some(ActiveSession {
                 id: id2,
                 name: name2,
             }));
         });
+    };
+
+    // Quick add beer handler
+    let on_quick_add_beer = move |_| {
+        let tok = match token.get() {
+            Some(t) => t,
+            None => return,
+        };
+        let name = quick_beer_name.get();
+        if name.is_empty() {
+            set_error.set(Some("Beer name is required".into()));
+            return;
+        }
+
+        set_adding_beer.set(true);
+        set_error.set(None);
+        let is_new_brewery = quick_new_brewery.get();
+        let brewery_id = quick_brewery_id.get();
+        let brewery_name = quick_brewery_name.get();
+        let style_val = quick_style.get();
+        let abv_val = quick_abv.get();
+
+        leptos::task::spawn_local(async move {
+            // Resolve brewery
+            let bid = if is_new_brewery {
+                if brewery_name.is_empty() {
+                    set_error.set(Some("Brewery name is required".into()));
+                    set_adding_beer.set(false);
+                    return;
+                }
+                match create_brewery_api(&tok, &brewery_name).await {
+                    Ok(id) => id,
+                    Err(e) => {
+                        set_error.set(Some(e));
+                        set_adding_beer.set(false);
+                        return;
+                    }
+                }
+            } else {
+                if brewery_id.is_empty() {
+                    set_error.set(Some("Please select a brewery".into()));
+                    set_adding_beer.set(false);
+                    return;
+                }
+                brewery_id
+            };
+
+            let abv_parsed = if abv_val.is_empty() {
+                None
+            } else {
+                abv_val.parse::<f64>().ok()
+            };
+
+            match create_beer_api(
+                &tok,
+                &bid,
+                &name,
+                if style_val.is_empty() {
+                    None
+                } else {
+                    Some(&style_val)
+                },
+                abv_parsed,
+            )
+            .await
+            {
+                Ok(created) => {
+                    // Auto-select the newly created beer
+                    set_selected_beer.set(Some(BeerSearchResult {
+                        id: created.id,
+                        name: created.name,
+                        style: if style_val.is_empty() {
+                            None
+                        } else {
+                            Some(style_val)
+                        },
+                        abv: abv_parsed,
+                    }));
+                    set_show_quick_add.set(false);
+                    set_quick_beer_name.set(String::new());
+                    set_quick_brewery_id.set(String::new());
+                    set_quick_new_brewery.set(false);
+                    set_quick_brewery_name.set(String::new());
+                    set_quick_style.set(String::new());
+                    set_quick_abv.set(String::new());
+                    set_search_results.set(Vec::new());
+                    set_search_query.set(String::new());
+                }
+                Err(e) => set_error.set(Some(e)),
+            }
+            set_adding_beer.set(false);
+        });
+    };
+
+    // Show quick add and pre-fill with search query
+    let on_show_quick_add = move |_| {
+        set_show_quick_add.set(true);
+        set_quick_beer_name.set(search_query.get());
+        // Load breweries for the selector
+        if let Some(tok) = token.get() {
+            leptos::task::spawn_local(async move {
+                if let Ok(list) = fetch_breweries_api().await {
+                    set_breweries.set(list);
+                }
+                let _ = tok;
+            });
+        }
     };
 
     let on_submit = move |ev: leptos::ev::SubmitEvent| {
@@ -183,6 +314,14 @@ pub fn RateBeerPage(
         let location_id = selected_location.get();
         let serving = selected_serving.get();
 
+        // Persist serving style and location for next time
+        if let Some(ref s) = serving {
+            save_last_serving(s);
+        }
+        if let Some(ref l) = location_id {
+            save_last_location(l);
+        }
+
         leptos::task::spawn_local(async move {
             match submit_tasting(
                 &tok,
@@ -203,10 +342,15 @@ pub fn RateBeerPage(
                     set_success.set(Some(format!("Rated {} — {}/10! 🎉", beer.name, score)));
                     set_selected_beer.set(None);
                     set_selected_score.set(None);
-                    set_selected_serving.set(None);
+                    // Keep serving style & location for next rating
                     set_notes.set(String::new());
                     set_search_query.set(String::new());
                     set_search_results.set(Vec::new());
+                    // Auto-dismiss success after 3 seconds
+                    leptos::task::spawn_local(async move {
+                        gloo_timers::future::TimeoutFuture::new(3_000).await;
+                        set_success.set(None);
+                    });
                 }
                 Err(e) => set_error.set(Some(e)),
             }
@@ -299,6 +443,7 @@ pub fn RateBeerPage(
                                 let query = search_query.get();
                                 if query.len() >= 2 {
                                     set_searching.set(true);
+                                    set_show_quick_add.set(false);
                                     leptos::task::spawn_local(async move {
                                         match search_beers(&query).await {
                                             Ok(results) => set_search_results.set(results),
@@ -343,6 +488,104 @@ pub fn RateBeerPage(
                         None
                     }
                 }}
+
+                // "Not found? Quick-add" button
+                {move || {
+                    let results = search_results.get();
+                    let sel = selected_beer.get();
+                    let query = search_query.get();
+                    if sel.is_none() && query.len() >= 2 && !searching.get() && !show_quick_add.get() {
+                        Some(view! {
+                            <button
+                                type="button"
+                                class="btn-text quick-add-trigger"
+                                on:click=on_show_quick_add
+                            >
+                                {if results.is_empty() {
+                                    "Beer not in database? Add it quick →"
+                                } else {
+                                    "Not the right one? Add a new beer →"
+                                }}
+                            </button>
+                        })
+                    } else {
+                        None
+                    }
+                }}
+
+                // Inline quick-add beer form
+                {move || show_quick_add.get().then(|| view! {
+                    <div class="quick-add-form">
+                        <h4>"Quick Add Beer"</h4>
+                        <div class="form-group">
+                            <input
+                                type="text"
+                                placeholder="Beer name"
+                                prop:value=move || quick_beer_name.get()
+                                on:input=move |ev| set_quick_beer_name.set(event_target_value(&ev))
+                            />
+                        </div>
+                        <div class="form-group">
+                            {move || {
+                                if quick_new_brewery.get() {
+                                    view! {
+                                        <div class="inline-create">
+                                            <input
+                                                type="text"
+                                                placeholder="New brewery name"
+                                                prop:value=move || quick_brewery_name.get()
+                                                on:input=move |ev| set_quick_brewery_name.set(event_target_value(&ev))
+                                            />
+                                            <button type="button" class="btn-text" on:click=move |_| set_quick_new_brewery.set(false)>"Cancel"</button>
+                                        </div>
+                                    }.into_any()
+                                } else {
+                                    let brew_list = breweries.get();
+                                    view! {
+                                        <div class="inline-create">
+                                            <select
+                                                on:change=move |ev| set_quick_brewery_id.set(event_target_value(&ev))
+                                            >
+                                                <option value="">"— Select brewery —"</option>
+                                                {brew_list.iter().map(|b| {
+                                                    let id = b.id.clone();
+                                                    let name = b.name.clone();
+                                                    view! { <option value=id>{name}</option> }
+                                                }).collect::<Vec<_>>()}
+                                            </select>
+                                            <button type="button" class="btn-text" on:click=move |_| set_quick_new_brewery.set(true)>"+ New"</button>
+                                        </div>
+                                    }.into_any()
+                                }
+                            }}
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <input
+                                    type="text"
+                                    placeholder="Style (optional)"
+                                    prop:value=move || quick_style.get()
+                                    on:input=move |ev| set_quick_style.set(event_target_value(&ev))
+                                />
+                            </div>
+                            <div class="form-group">
+                                <input
+                                    type="number"
+                                    step="0.1"
+                                    placeholder="ABV %"
+                                    prop:value=move || quick_abv.get()
+                                    on:input=move |ev| set_quick_abv.set(event_target_value(&ev))
+                                />
+                            </div>
+                        </div>
+                        <div class="quick-add-actions">
+                            <button type="button" class="btn-primary" on:click=on_quick_add_beer disabled=move || adding_beer.get()>
+                                {move || if adding_beer.get() { "Adding..." } else { "Add & Select" }}
+                            </button>
+                            <button type="button" class="btn-text" on:click=move |_| set_show_quick_add.set(false)>"Cancel"</button>
+                        </div>
+                    </div>
+                })}
 
                 {move || selected_beer.get().map(|beer| view! {
                     <div class="selected-beer">
@@ -420,6 +663,7 @@ pub fn RateBeerPage(
                 <div class="form-group">
                     <label>"Location (optional)"</label>
                     <select
+                        prop:value=move || selected_location.get().unwrap_or_default()
                         on:change=move |ev| {
                             let val = event_target_value(&ev);
                             set_selected_location.set(if val.is_empty() { None } else { Some(val) });
@@ -458,6 +702,41 @@ pub fn RateBeerPage(
 pub struct ActiveSession {
     pub id: String,
     pub name: String,
+}
+
+/// Store the active session in localStorage so it survives page refreshes.
+pub fn persist_active_session(session: &ActiveSession) {
+    if let Some(storage) = web_sys::window()
+        .and_then(|w| w.local_storage().ok())
+        .flatten()
+    {
+        let _ = storage.set_item("open_tappd_session_id", &session.id);
+        let _ = storage.set_item("open_tappd_session_name", &session.name);
+    }
+}
+
+/// Clear the active session from localStorage.
+pub fn clear_persisted_session() {
+    if let Some(storage) = web_sys::window()
+        .and_then(|w| w.local_storage().ok())
+        .flatten()
+    {
+        let _ = storage.remove_item("open_tappd_session_id");
+        let _ = storage.remove_item("open_tappd_session_name");
+    }
+}
+
+/// Restore the active session from localStorage (returns None if not stored).
+pub fn restore_persisted_session() -> Option<ActiveSession> {
+    let storage = web_sys::window()
+        .and_then(|w| w.local_storage().ok())
+        .flatten()?;
+    let id = storage.get_item("open_tappd_session_id").ok().flatten()?;
+    let name = storage.get_item("open_tappd_session_name").ok().flatten()?;
+    if id.is_empty() {
+        return None;
+    }
+    Some(ActiveSession { id, name })
 }
 
 async fn search_beers(query: &str) -> Result<Vec<BeerSearchResult>, String> {
@@ -596,6 +875,128 @@ async fn submit_tasting(
         Err(data["error"]
             .as_str()
             .unwrap_or("Failed to submit tasting")
+            .to_string())
+    }
+}
+
+// --- localStorage helpers for remembering user preferences ---
+
+fn get_last_serving() -> Option<String> {
+    web_sys::window()
+        .and_then(|w| w.local_storage().ok())
+        .flatten()
+        .and_then(|s| s.get_item("open_tappd_last_serving").ok())
+        .flatten()
+        .filter(|v| !v.is_empty())
+}
+
+fn save_last_serving(serving: &str) {
+    if let Some(storage) = web_sys::window()
+        .and_then(|w| w.local_storage().ok())
+        .flatten()
+    {
+        let _ = storage.set_item("open_tappd_last_serving", serving);
+    }
+}
+
+fn get_last_location() -> Option<String> {
+    web_sys::window()
+        .and_then(|w| w.local_storage().ok())
+        .flatten()
+        .and_then(|s| s.get_item("open_tappd_last_location").ok())
+        .flatten()
+        .filter(|v| !v.is_empty())
+}
+
+fn save_last_location(location_id: &str) {
+    if let Some(storage) = web_sys::window()
+        .and_then(|w| w.local_storage().ok())
+        .flatten()
+    {
+        let _ = storage.set_item("open_tappd_last_location", location_id);
+    }
+}
+
+// --- API helpers for inline beer creation ---
+
+async fn fetch_breweries_api() -> Result<Vec<BreweryOption>, String> {
+    let resp = gloo_net::http::Request::get("/api/breweries")
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+
+    if resp.ok() {
+        resp.json::<Vec<BreweryOption>>()
+            .await
+            .map_err(|e| format!("Parse error: {e}"))
+    } else {
+        Err("Failed to fetch breweries".to_string())
+    }
+}
+
+async fn create_brewery_api(token: &str, name: &str) -> Result<String, String> {
+    let body = serde_json::json!({ "name": name });
+
+    let resp = gloo_net::http::Request::post("/api/breweries")
+        .header("Content-Type", "application/json")
+        .header("Authorization", &format!("Bearer {token}"))
+        .body(body.to_string())
+        .map_err(|e| format!("Request error: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+
+    if resp.ok() {
+        let data: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
+        data["id"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "No ID in response".to_string())
+    } else {
+        let data: serde_json::Value = resp.json().await.unwrap_or_default();
+        Err(data["error"]
+            .as_str()
+            .unwrap_or("Failed to create brewery")
+            .to_string())
+    }
+}
+
+async fn create_beer_api(
+    token: &str,
+    brewery_id: &str,
+    name: &str,
+    style: Option<&str>,
+    abv: Option<f64>,
+) -> Result<CreatedBeerResponse, String> {
+    let mut body = serde_json::json!({
+        "brewery_id": brewery_id,
+        "name": name,
+    });
+    if let Some(s) = style {
+        body["style"] = serde_json::Value::String(s.to_string());
+    }
+    if let Some(a) = abv {
+        body["abv"] = serde_json::json!(a);
+    }
+
+    let resp = gloo_net::http::Request::post("/api/beers")
+        .header("Content-Type", "application/json")
+        .header("Authorization", &format!("Bearer {token}"))
+        .body(body.to_string())
+        .map_err(|e| format!("Request error: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+
+    if resp.ok() {
+        resp.json::<CreatedBeerResponse>()
+            .await
+            .map_err(|e| format!("Parse error: {e}"))
+    } else {
+        let data: serde_json::Value = resp.json().await.unwrap_or_default();
+        Err(data["error"]
+            .as_str()
+            .unwrap_or("Failed to create beer")
             .to_string())
     }
 }

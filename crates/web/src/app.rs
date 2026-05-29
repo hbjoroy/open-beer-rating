@@ -4,7 +4,9 @@ use leptos::prelude::*;
 
 use crate::components;
 use crate::pages;
-use crate::pages::rate_beer::ActiveSession;
+use crate::pages::rate_beer::{
+    clear_persisted_session, persist_active_session, restore_persisted_session,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Page {
@@ -56,7 +58,7 @@ pub struct HomePageNav {
 pub fn App() -> impl IntoView {
     let (current_page, set_page) = signal(Page::Home);
     let (token, set_token) = signal(Option::<String>::None);
-    let (active_session, set_active_session) = signal(Option::<ActiveSession>::None);
+    let (active_session, set_active_session) = signal(restore_persisted_session());
 
     provide_context(HomePageNav {
         is_logged_in: Signal::derive(move || token.get().is_some()),
@@ -102,6 +104,12 @@ pub fn App() -> impl IntoView {
             }
         });
     }
+
+    // Persist active session to localStorage whenever it changes
+    Effect::new(move |_| match active_session.get() {
+        Some(ref s) => persist_active_session(s),
+        None => clear_persisted_session(),
+    });
 
     let nav_class = "nav-link";
 
@@ -175,6 +183,13 @@ pub fn App() -> impl IntoView {
                     />
                 </nav>
             </header>
+
+            {move || active_session.get().map(|s| view! {
+                <div class="global-session-banner">
+                    <span>"📋 " <strong>{s.name.clone()}</strong></span>
+                    <button type="button" class="btn-text" on:click=move |_| set_active_session.set(None)>"✕ Leave"</button>
+                </div>
+            })}
 
             <main class="content">
                 {move || {

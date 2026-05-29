@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "pencil": {
+      "type": "stdio",
+      "command": "C:\\Users\\c625hb6\\AppData\\Local\\Programs\\Pencil\\resources\\app.asar.unpacked\\out\\mcp-server-windows-x64.exe",
+      "args": ["--app", "desktop"],
+      "env": {}
+    }
+  }
+}
