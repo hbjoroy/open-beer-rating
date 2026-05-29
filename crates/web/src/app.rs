@@ -264,10 +264,19 @@ pub fn App() -> impl IntoView {
                 <button
                     type="button"
                     class="bottom-nav-item"
+                    class:active=move || current_page.with(|page| page.is_beers())
+                    on:click=move |_| set_page.set(Page::BeerList)
+                >
+                    <span class="bottom-nav-icon">"🍺"</span>
+                    <span class="bottom-nav-label">"Beers"</span>
+                </button>
+                <button
+                    type="button"
+                    class="bottom-nav-item"
                     class:active=move || current_page.with(|page| page.is_rate())
                     on:click=move |_| set_page.set(Page::RateBeer)
                 >
-                    <span class="bottom-nav-icon">"🍺"</span>
+                    <span class="bottom-nav-icon">"⭐"</span>
                     <span class="bottom-nav-label">"Rate"</span>
                 </button>
                 <button
