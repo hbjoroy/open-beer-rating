@@ -12,7 +12,7 @@ external-heic-fixture-tests = []
 open-tappd-domain = { workspace = true, features = ["sqlx-support"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-uuid = { workspace = true }
+uuid = { workspace = true, features = ["v5"] }
 chrono = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
@@ -32,6 +32,7 @@ url = "2"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 # Exact pin: upload preflight guards are reviewed against this decoder's internals.
 heic-rs = { version = "=0.1.4", default-features = false, features = ["std"] }
+openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

@@ -28,6 +28,7 @@ pub struct UpdatePrivacyRequest {
 #[derive(Debug, Serialize)]
 pub struct DataExportResponse {
     pub user: DataExportUser,
+    pub identity: Option<crate::identity::LinkedIdentity>,
     // Compatibility summary: the latest canonical tasting for each beer.
     pub ratings: Vec<DataExportRating>,
     pub tastings: Vec<DataExportTasting>,
@@ -219,6 +220,7 @@ pub async fn export_data(
         .collect();
 
     Ok(Json(DataExportResponse {
+        identity: export.identity,
         user: DataExportUser {
             username: export.user.username,
             email,

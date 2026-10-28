@@ -83,6 +83,17 @@ spec:
               containerPort: {{ .Values.app.port }}
               protocol: TCP
           env:
+            {{- if .Values.identity.enabled }}
+            - name: OIDC_CLIENT_ID
+              value: {{ required "identity.clientId is required" .Values.identity.clientId | quote }}
+            - name: OIDC_ORIGIN
+              value: {{ .Values.identity.origin | quote }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "identity.existingSecret is required" .Values.identity.existingSecret }}
+                  key: client-secret
+            {{- end }}
             - name: API_HOST
               value: "0.0.0.0"
             - name: API_PORT

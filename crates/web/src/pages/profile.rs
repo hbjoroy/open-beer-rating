@@ -39,6 +39,7 @@ pub fn ProfilePage(token: ReadSignal<Option<String>>) -> impl IntoView {
     view! {
         <div class="page profile">
             <h2>"My Profile"</h2>
+            <super::identity::IdentitySettings token=token />
 
             <section>
                 <h3>"🏆 Badges"</h3>

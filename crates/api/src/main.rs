@@ -47,6 +47,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Database connected");
 
     let state = AppState {
+        identity: open_tappd_api::identity::IdentityConfig::from_env()?,
         pool,
         encryption_key,
         jwt_secret,

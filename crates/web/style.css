@@ -1548,3 +1548,4 @@ button:disabled { cursor: wait; opacity: .65; }
 .tasting-entry .tasting-photo-expanded { grid-column: 1 / -1; margin-top: 0; }
 .photo-preview-unavailable { padding: 1rem; border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); }
 .tasting-card-actions:not([hidden]) { display: flex; flex-wrap: wrap; gap: .75rem; }
+.identity-panel { padding: 1.25rem; margin-block: 1.5rem; border: 1px solid var(--border-color, #444); border-radius: 1rem; overflow-wrap: anywhere; } .identity-panel p { margin-block: 0.75rem; }

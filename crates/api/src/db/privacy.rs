@@ -70,6 +70,7 @@ pub struct UserDataExport {
     pub badges: Vec<super::badges::UserBadgeRow>,
     pub passkeys: Vec<ExportPasskeyRow>,
     pub settings: PrivacySettingsRow,
+    pub identity: Option<crate::identity::LinkedIdentity>,
 }
 
 #[derive(Debug, FromRow)]
@@ -223,8 +224,10 @@ pub async fn export_user_data(
     .bind(user_id)
     .fetch_one(&mut *tx)
     .await?;
+    let identity = sqlx::query_as::<_,crate::identity::LinkedIdentity>("SELECT issuer,subject,display_name,sproyt_user_id,linked_at FROM external_identities WHERE user_id=$1").bind(user_id).fetch_optional(&mut *tx).await?;
     tx.commit().await?;
     Ok(Some(UserDataExport {
+        identity,
         user,
         tastings,
         locations,

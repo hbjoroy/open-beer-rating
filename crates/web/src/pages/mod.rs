@@ -8,3 +8,4 @@ pub mod profile;
 pub mod rate_beer;
 pub mod register;
 pub mod sessions;
+pub mod identity;

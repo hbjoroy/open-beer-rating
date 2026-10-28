@@ -165,3 +165,8 @@ readinessProbe:
     path: /health
     port: http
   periodSeconds: 5
+identity:
+  enabled: false
+  clientId: ""
+  origin: https://open-drink.bjoroy.me
+  existingSecret: ""

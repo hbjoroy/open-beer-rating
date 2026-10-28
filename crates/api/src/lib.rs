@@ -1,3 +1,4 @@
+pub mod identity;
 pub mod auth;
 pub mod db;
 pub mod errors;
@@ -9,6 +10,13 @@ use axum::{Router, routing::{get, post, put, delete}};
 pub fn create_router(state: state::AppState) -> Router {
     let api = Router::new()
         .route("/health", get(routes::health::health_check))
+        .route("/api/identity", get(identity::availability))
+        .route("/api/identity/login", post(identity::login_start))
+        .route("/api/identity/link", post(identity::link_start))
+        .route("/api/identity/callback", get(identity::callback))
+        .route("/api/identity/pending", get(identity::pending))
+        .route("/api/identity/complete", post(identity::complete))
+        .route("/api/users/me/identity", get(identity::status))
         // Users
         .route("/api/users/register", post(routes::users::register))
         .route("/api/users/register/abort", post(routes::users::abort_registration))
