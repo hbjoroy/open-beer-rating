@@ -343,6 +343,24 @@ pub async fn pending(
         None,
     ))
 }
+
+pub async fn cancel(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(_): Json<serde_json::Value>,
+) -> Result<Response, ApiError> {
+    check_origin(&headers, config(&state)?)?;
+    if let Ok(cookie) = cookie(&headers) {
+        sqlx::query("DELETE FROM identity_flows WHERE browser_hash=$1")
+            .bind(hash(&cookie))
+            .execute(&state.pool)
+            .await?;
+    }
+    Ok(private_response(
+        Json(serde_json::json!({"cancelled":true})),
+        Some(""),
+    ))
+}
 /// Sprøyt's existing UUIDv5 mapping. Both reviewed Authentik providers use user.uid;
 /// the different per-provider issuers are never treated as interchangeable for JWT verification.
 pub fn sproyt_id(subject: &str) -> Uuid {

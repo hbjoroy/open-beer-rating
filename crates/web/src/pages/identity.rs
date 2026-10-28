@@ -145,6 +145,20 @@ pub fn IdentityFinish(token: WriteSignal<Option<String>>) -> impl IntoView {
             .await
             .map_err(|_| "Could not load verification")
     });
+    let cancel_navigate = navigate.clone();
+    let cancel = move |_| {
+        busy.set(true);
+        let navigate = cancel_navigate.clone();
+        leptos::task::spawn_local(async move {
+            match post("/api/identity/cancel", None).await {
+                Ok(_) => navigate("/login", Default::default()),
+                Err(e) => {
+                    error.set(Some(e));
+                    busy.set(false);
+                }
+            }
+        });
+    };
     let confirm = move |_| {
         busy.set(true);
         error.set(None);
@@ -153,6 +167,10 @@ pub fn IdentityFinish(token: WriteSignal<Option<String>>) -> impl IntoView {
             match post("/api/identity/complete", None).await {
                 Ok(body) => {
                     if let Some(jwt) = body["token"].as_str() {
+                        super::login::set_autologon(false);
+                        if let Some(name) = super::login::extract_username_from_jwt(jwt) {
+                            super::login::store_username(&name);
+                        }
                         token.set(Some(jwt.into()));
                         navigate("/account", Default::default());
                     }
@@ -176,6 +194,6 @@ pub fn IdentityFinish(token: WriteSignal<Option<String>>) -> impl IntoView {
             <button class="btn btn-primary" disabled=move ||busy.get() on:click=confirm.clone()>"Confirm and continue"</button>
         </Show>
         {move ||error.get().map(|e|view!{<p class="error" role="alert">{e}</p>})}
-        <p><a href="/login">"Cancel and return to sign in"</a></p>
+        <p><button type="button" class="btn btn-secondary" disabled=move ||busy.get() on:click=cancel>"Cancel and return to sign in"</button></p>
     </div> }
 }

@@ -16,6 +16,7 @@ pub fn create_router(state: state::AppState) -> Router {
         .route("/api/identity/callback", get(identity::callback))
         .route("/api/identity/pending", get(identity::pending))
         .route("/api/identity/complete", post(identity::complete))
+        .route("/api/identity/cancel", post(identity::cancel))
         .route("/api/users/me/identity", get(identity::status))
         // Users
         .route("/api/users/register", post(routes::users::register))

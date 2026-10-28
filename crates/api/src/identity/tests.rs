@@ -238,6 +238,23 @@ async fn expiry_and_concurrent_confirmation(pool: sqlx::PgPool) {
     let mut codes = vec![a.0.as_u16(), b.0.as_u16()];
     codes.sort();
     assert_eq!(codes, vec![200, 401]);
+    let key = pending_flow(&state, Some(alice), "subject").await;
+    let mut headers = HeaderMap::new();
+    headers.insert(header::COOKIE, format!("{COOKIE}={key}").parse().unwrap());
+    headers.insert(header::ORIGIN, "https://app.example".parse().unwrap());
+    let response = cancel(State(state.clone()), headers, Json(serde_json::json!({})))
+        .await
+        .unwrap();
+    assert!(
+        response.headers()[header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .contains("Max-Age=0")
+    );
+    assert_eq!(
+        confirm(&state, &key, "https://app.example").await.0,
+        StatusCode::UNAUTHORIZED
+    );
 }
 
 #[sqlx::test(migrations = "../../migrations")]
