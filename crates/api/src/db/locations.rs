@@ -51,6 +51,7 @@ pub async fn get_location(pool: &PgPool, id: Uuid) -> Result<Option<LocationRow>
 
 pub async fn list_locations(
     pool: &PgPool,
+    user_id: Uuid,
     location_type_filter: Option<LocationType>,
     search: Option<&str>,
     limit: i64,
@@ -60,7 +61,7 @@ pub async fn list_locations(
         r#"
         SELECT id, name, location_type, metadata, created_by, is_active, created_at, updated_at
         FROM locations
-        WHERE is_active = true
+        WHERE is_active = true AND created_by = $5
           AND ($1::location_type IS NULL OR location_type = $1)
           AND ($2::text IS NULL OR name ILIKE '%' || $2 || '%')
         ORDER BY name
@@ -71,6 +72,7 @@ pub async fn list_locations(
     .bind(search)
     .bind(limit)
     .bind(offset)
+    .bind(user_id)
     .fetch_all(pool)
     .await
 }

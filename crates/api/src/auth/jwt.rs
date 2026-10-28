@@ -1,7 +1,4 @@
-use axum::{
-    extract::FromRequestParts,
-    http::request::Parts,
-};
+use axum::{extract::FromRequestParts, http::request::Parts};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as B64};
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -105,6 +102,14 @@ impl FromRequestParts<AppState> for AuthUser {
             .ok_or_else(|| ApiError::Unauthorized("Invalid Authorization header format".into()))?;
 
         let claims = verify_token(token, &state.jwt_secret)?;
+
+        // Account deletion invalidates outstanding tokens immediately.
+        if crate::db::users::find_user_by_id(&state.pool, claims.sub)
+            .await?
+            .is_none()
+        {
+            return Err(ApiError::Unauthorized("Account no longer exists".into()));
+        }
 
         Ok(AuthUser {
             user_id: claims.sub,

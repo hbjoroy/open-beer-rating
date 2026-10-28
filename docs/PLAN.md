@@ -1,5 +1,77 @@
 # Open Tappd — Community Beer Tasting Platform
 
+## Current implementation direction (2026-10-28)
+
+The historical phases below are background, not a statement of completion.
+First consolidate privacy and tasting storage, and pass real PostgreSQL regression
+tests before changing the user interface. `tastings` is the canonical history;
+legacy rating endpoints remain compatibility adapters. Public aggregates use the
+latest tasting per user, ordered by tasted_at, created_at and ID descending.
+
+Public individual activity is disabled until explicit audience and consent rules
+exist. Locations are owner-only; session details and tasting results require
+ownership or membership. Joining a session shares its tasting results with that
+group, never private notes or another user's personal location.
+
+Future social functionality must be planned in collaboration with **Sprøyt**, the
+social network/chat system being developed alongside this project. Discover its
+actual APIs and identity model before selecting an integration contract. Plan
+explicit account linking, audience selection, consent, revocation/deletion and
+failure handling. Do not build a parallel social graph or automatically send
+tasting history, notes or location data to Sprøyt.
+
+See [backend migration and verification](BACKEND_MIGRATION.md) for this increment.
+
+### Delivered usability stages (2026-10-28)
+
+- URL-based navigation with browser history, deep links, safe login return paths,
+  mobile navigation and an accessible account menu.
+- Searchable, paginated beer catalogue (beer or brewery), beer details and one
+  shared tasting form. Account-scoped drafts survive navigation; logout clears them.
+- Private tasting history with beer filtering, editing and explicit deletion
+  confirmation. Editing preserves serving style and location context.
+- Session creation, invitation links/codes, selection for new tastings, membership
+  departure and owner-controlled ending. Clearing the selected session does not
+  leave its membership. Session results use the restricted backend API.
+- PostgreSQL regression tests and browser-target compilation gate image builds.
+
+Next: account/privacy controls, real-device passkey testing and a small usability
+pilot. Agree the Sprøyt identity and consent contract before adding social sharing.
+Network retries still need an idempotency design before offline submission is added.
+The historical roadmap below does not override these priorities or the canonical
+tasting model.
+
+### Tasting photos (2026-10-28)
+
+One optional private photo per tasting, captured with the camera or selected from
+files. Store only two JPEG derivatives in PostgreSQL, linked by a cascading foreign
+key; no original file or external media service. Thumbnail: short edge 320px,
+long edge at most 640px, JPEG quality 80. Large: short edge 960px, long edge at most
+1920px, quality 85. Preserve aspect ratio, do not upscale, and do not crop labels.
+A 3:2 photo becomes 480x320 and 1440x960. Extreme aspect ratios use the long-edge cap.
+
+The API accepts JPEG, PNG, WebP and supported HEIC/HEIF still images up to 12MiB
+and 40 megapixels. It applies orientation and removes metadata by reencoding
+pixels. HEIC decoding uses the pinned pure-Rust heic-rs decoder with tile/SPS
+preflight and a 192MiB memory budget; some HEICs above 12MP and uncommon HEIF
+features are rejected with a JPEG export suggestion. See the
+[HEIC test evidence](../crates/api/tests/fixtures/heic/README.md) for supported
+features and real iPhone verification. Private authenticated image routes
+use no-store responses; session membership does not grant access to photos. Owner
+data exports include both JPEG variants as base64, and deletion removes them.
+
+The tasting is saved before its photo upload. A failed photo upload can be retried
+against the saved tasting without creating a second history entry. Pending photos
+are kept only in page memory; they do not survive reloading like text drafts do.
+The history card reserves a thumbnail slot at its upper right, including a quiet
+placeholder for tastings without photos. Long names wrap in the remaining column;
+the enlarged image opens across the full card width.
+
+The mobile camera control uses native file capture with a rear-camera hint and a
+separate library control. Physical Android camera acceptance is tracked separately
+from desktop upload and automated decoder tests; the local smoke-test procedure
+is documented in LOCAL_DEV.md.
+
 ## Problem Statement
 
 Existing beer rating/tasting apps (Untappd, etc.) are closed-source and centralized. We want to build an open-source, community-owned, **privacy-first** alternative with responsible gamification. Users should be able to register beer products, rate them on a 0–10 scale, and earn badges/achievements for their tasting journey — all while maintaining strong control over their personal data. Drinking behavior is sensitive personal data, and the platform should treat it as such from day one.

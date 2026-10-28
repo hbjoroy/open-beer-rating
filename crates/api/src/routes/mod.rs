@@ -7,5 +7,6 @@ pub mod badges;
 pub mod privacy;
 pub mod passkeys;
 pub mod tastings;
+pub mod tasting_photos;
 pub mod locations;
 pub mod tasting_sessions;

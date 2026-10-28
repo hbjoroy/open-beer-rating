@@ -1,5 +1,5 @@
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -78,7 +78,9 @@ pub async fn rate_beer(
     .await?;
 
     // Evaluate badges after rating
-    crate::routes::badges::evaluate_badges(&state.pool, auth.user_id).await?;
+    if let Err(error) = crate::routes::badges::evaluate_badges(&state.pool, auth.user_id).await {
+        tracing::error!(?error, "Badge evaluation failed after rating was saved");
+    }
 
     Ok((
         axum::http::StatusCode::CREATED,
@@ -116,8 +118,8 @@ pub async fn get_my_ratings(
     auth: AuthUser,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<Vec<UserRatingResponse>>, ApiError> {
-    let limit = params.limit.unwrap_or(20).min(100);
-    let offset = params.offset.unwrap_or(0);
+    let limit = params.limit.unwrap_or(20).clamp(1, 100);
+    let offset = params.offset.unwrap_or(0).max(0);
 
     let ratings = db::ratings::get_user_ratings(&state.pool, auth.user_id, limit, offset).await?;
 

@@ -1,5 +1,5 @@
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -45,6 +45,7 @@ pub struct TastingResponse {
     pub session_name: Option<String>,
     pub tasted_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
+    pub has_photo: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -82,6 +83,7 @@ pub struct RecentTastingResponse {
 pub struct PaginationParams {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    pub beer_id: Option<Uuid>,
 }
 
 /// POST /api/tastings — create a tasting (authenticated)
@@ -99,9 +101,7 @@ pub async fn create_tasting(
 
     // Verify location exists if provided
     if let Some(loc_id) = req.location_id {
-        db::locations::get_location(&state.pool, loc_id)
-            .await?
-            .ok_or_else(|| ApiError::NotFound("Location not found".into()))?;
+        super::locations::require_owned_location(&state.pool, loc_id, auth.user_id).await?;
     }
 
     // Verify session exists and user is participant if provided
@@ -143,7 +143,9 @@ pub async fn create_tasting(
     .await?;
 
     // Evaluate badges after tasting
-    crate::routes::badges::evaluate_badges(&state.pool, auth.user_id).await?;
+    if let Err(error) = crate::routes::badges::evaluate_badges(&state.pool, auth.user_id).await {
+        tracing::error!(?error, "Badge evaluation failed after tasting was saved");
+    }
 
     Ok((
         axum::http::StatusCode::CREATED,
@@ -162,10 +164,12 @@ pub async fn list_my_tastings(
     auth: AuthUser,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<Vec<TastingResponse>>, ApiError> {
-    let limit = params.limit.unwrap_or(20).min(100);
-    let offset = params.offset.unwrap_or(0);
+    let limit = params.limit.unwrap_or(20).clamp(1, 100);
+    let offset = params.offset.unwrap_or(0).max(0);
 
-    let rows = db::tastings::get_user_tastings(&state.pool, auth.user_id, limit, offset).await?;
+    let rows =
+        db::tastings::get_user_tastings(&state.pool, auth.user_id, params.beer_id, limit, offset)
+            .await?;
 
     let mut results = Vec::with_capacity(rows.len());
     for r in rows {
@@ -184,6 +188,7 @@ pub async fn list_my_tastings(
             session_name: r.session_name,
             tasted_at: r.tasted_at,
             created_at: r.created_at,
+            has_photo: r.has_photo,
         });
     }
 
@@ -220,6 +225,7 @@ pub async fn get_tasting(
         session_name: None,
         tasted_at: row.tasted_at,
         created_at: row.created_at,
+        has_photo: row.has_photo,
     }))
 }
 
@@ -233,9 +239,7 @@ pub async fn update_tasting(
     validation::validate_score(req.score)?;
 
     if let Some(loc_id) = req.location_id {
-        db::locations::get_location(&state.pool, loc_id)
-            .await?
-            .ok_or_else(|| ApiError::NotFound("Location not found".into()))?;
+        super::locations::require_owned_location(&state.pool, loc_id, auth.user_id).await?;
     }
 
     let notes_encrypted = if let Some(ref notes) = req.notes {
@@ -272,6 +276,7 @@ pub async fn update_tasting(
         session_name: None,
         tasted_at: row.tasted_at,
         created_at: row.created_at,
+        has_photo: row.has_photo,
     }))
 }
 
@@ -310,9 +315,8 @@ pub async fn get_beer_tastings(
 }
 
 fn decrypt_notes(encrypted: Option<&[u8]>, key: &[u8; 32]) -> Option<String> {
-    encrypted.map(|enc| {
-        crypto::decrypt_field(enc, key).unwrap_or_else(|_| "[decryption error]".into())
-    })
+    encrypted
+        .map(|enc| crypto::decrypt_field(enc, key).unwrap_or_else(|_| "[decryption error]".into()))
 }
 
 /// Public version for cross-module access
@@ -320,31 +324,8 @@ pub fn decrypt_notes_pub(encrypted: Option<&[u8]>, key: &[u8; 32]) -> Option<Str
     decrypt_notes(encrypted, key)
 }
 
-/// GET /api/tastings/recent — public feed of recent check-ins (no auth required)
-pub async fn get_recent_tastings(
-    State(state): State<AppState>,
-    Query(params): Query<PaginationParams>,
-) -> Result<Json<Vec<RecentTastingResponse>>, ApiError> {
-    let limit = params.limit.unwrap_or(20).min(50);
-
-    let rows = db::tastings::get_recent_tastings(&state.pool, limit).await?;
-
-    let results: Vec<RecentTastingResponse> = rows
-        .into_iter()
-        .map(|r| RecentTastingResponse {
-            id: r.id,
-            username: r.username,
-            beer_id: r.beer_id,
-            beer_name: r.beer_name,
-            beer_style: r.beer_style,
-            brewery_name: r.brewery_name,
-            score: r.score,
-            serving_style: r.serving_style,
-            location_name: r.location_name,
-            session_name: r.session_name,
-            tasted_at: r.tasted_at,
-        })
-        .collect();
-
-    Ok(Json(results))
+/// Compatibility endpoint: public activity is disabled until explicit sharing
+/// consent and the Sprøyt integration have a defined audience model.
+pub async fn get_recent_tastings() -> Json<Vec<RecentTastingResponse>> {
+    Json(Vec::new())
 }

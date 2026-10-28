@@ -4,24 +4,21 @@
 //! Run them with: `cargo test -- --ignored`
 //!
 //! Set these environment variables before running:
-//! - DATABASE_URL=postgres://opentappd:opentappd@localhost:5432/opentappd_test
+//! - DATABASE_URL pointing to a dedicated PostgreSQL test server (CREATEDB required).
 //! - ENCRYPTION_KEY=<base64-encoded 32-byte key>
 //! - JWT_SECRET=test-secret
+//!
+//! SQLx creates and drops an isolated database for each test.
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
-use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
+use serde_json::{Value, json};
+use sqlx::PgPool;
 use tower::ServiceExt;
 
 /// Helper to create a test app with a real database connection.
-async fn test_app() -> axum::Router {
-    dotenvy::dotenv().ok();
-
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://opentappd:opentappd@localhost:5432/opentappd_test".into());
-
+async fn test_app(pool: PgPool) -> axum::Router {
     let encryption_key = open_tappd_domain::crypto::parse_encryption_key(
         &std::env::var("ENCRYPTION_KEY").unwrap_or_else(|_| {
             // Generate a deterministic test key
@@ -32,17 +29,6 @@ async fn test_app() -> axum::Router {
     .expect("valid encryption key");
 
     let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "test-secret".into());
-
-    let pool = PgPoolOptions::new()
-        .max_connections(2)
-        .connect(&database_url)
-        .await
-        .expect("Failed to connect to test database");
-
-    sqlx::migrate!("../../migrations")
-        .run(&pool)
-        .await
-        .expect("Failed to run migrations");
 
     let webauthn = std::sync::Arc::new(open_tappd_webauthn::WebAuthn::new(
         open_tappd_webauthn::WebAuthnConfig {
@@ -75,18 +61,13 @@ async fn register_user(app: &axum::Router, username: &str) -> (StatusCode, Value
         .method("POST")
         .uri("/api/users/register")
         .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({ "username": username }).to_string(),
-        ))
+        .body(Body::from(json!({ "username": username }).to_string()))
         .unwrap();
 
     let resp = app.clone().oneshot(req).await.unwrap();
     let status = resp.status();
     let body = body_json(resp.into_body()).await;
-    let recovery_key = body["recovery_key"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    let recovery_key = body["recovery_key"].as_str().unwrap_or("").to_string();
     (status, body, recovery_key)
 }
 
@@ -113,7 +94,8 @@ async fn login_user(app: &axum::Router, username: &str, recovery_key: &str) -> S
 
 /// Register + immediately get a token (convenience for tests that just need auth).
 async fn register_and_get_token(app: &axum::Router, username: &str) -> (String, String) {
-    let (_status, body, recovery_key) = register_user(app, username).await;
+    let (status, body, recovery_key) = register_user(app, username).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
     let token = body["token"].as_str().unwrap().to_string();
     (token, recovery_key)
 }
@@ -122,10 +104,10 @@ async fn register_and_get_token(app: &axum::Router, username: &str) -> (String, 
 // Health check
 // ──────────────────────────────────────────────
 
-#[tokio::test]
+#[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires PostgreSQL"]
-async fn health_check_returns_ok() {
-    let app = test_app().await;
+async fn health_check_returns_ok(pool: PgPool) {
+    let app = test_app(pool).await;
 
     let req = Request::builder()
         .uri("/health")
@@ -143,11 +125,14 @@ async fn health_check_returns_ok() {
 // User Registration
 // ──────────────────────────────────────────────
 
-#[tokio::test]
+#[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires PostgreSQL"]
-async fn register_user_minimal() {
-    let app = test_app().await;
-    let username = format!("testuser_{}", uuid::Uuid::new_v4().simple());
+async fn register_user_minimal(pool: PgPool) {
+    let app = test_app(pool).await;
+    let username = format!(
+        "testuser_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
+    );
 
     let (status, body, recovery_key) = register_user(&app, &username).await;
     assert_eq!(status, StatusCode::CREATED);
@@ -161,11 +146,14 @@ async fn register_user_minimal() {
     assert!(body.get("recovery_key_hash").is_none());
 }
 
-#[tokio::test]
+#[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires PostgreSQL"]
-async fn register_user_with_email() {
-    let app = test_app().await;
-    let username = format!("emailuser_{}", uuid::Uuid::new_v4().simple());
+async fn register_user_with_email(pool: PgPool) {
+    let app = test_app(pool).await;
+    let username = format!(
+        "emailuser_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
+    );
 
     let req = Request::builder()
         .method("POST")
@@ -184,11 +172,14 @@ async fn register_user_with_email() {
     assert_eq!(resp.status(), StatusCode::CREATED);
 }
 
-#[tokio::test]
+#[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires PostgreSQL"]
-async fn register_duplicate_username_returns_409() {
-    let app = test_app().await;
-    let username = format!("dupuser_{}", uuid::Uuid::new_v4().simple());
+async fn register_duplicate_username_returns_409(pool: PgPool) {
+    let app = test_app(pool).await;
+    let username = format!(
+        "dupuser_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
+    );
 
     let (status, _, _) = register_user(&app, &username).await;
     assert_eq!(status, StatusCode::CREATED);
@@ -201,11 +192,14 @@ async fn register_duplicate_username_returns_409() {
 // User Authentication (Recovery Key)
 // ──────────────────────────────────────────────
 
-#[tokio::test]
+#[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires PostgreSQL"]
-async fn login_with_recovery_key() {
-    let app = test_app().await;
-    let username = format!("loginuser_{}", uuid::Uuid::new_v4().simple());
+async fn login_with_recovery_key(pool: PgPool) {
+    let app = test_app(pool).await;
+    let username = format!(
+        "loginuser_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
+    );
     let (_, _, recovery_key) = register_user(&app, &username).await;
 
     let token = login_user(&app, &username, &recovery_key).await;
@@ -214,11 +208,14 @@ async fn login_with_recovery_key() {
     assert_eq!(token.split('.').count(), 3);
 }
 
-#[tokio::test]
+#[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires PostgreSQL"]
-async fn login_wrong_recovery_key_returns_401() {
-    let app = test_app().await;
-    let username = format!("wrongrk_{}", uuid::Uuid::new_v4().simple());
+async fn login_wrong_recovery_key_returns_401(pool: PgPool) {
+    let app = test_app(pool).await;
+    let username = format!(
+        "wrongrk_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
+    );
     register_user(&app, &username).await;
 
     let req = Request::builder()
@@ -242,11 +239,14 @@ async fn login_wrong_recovery_key_returns_401() {
 // Brewery CRUD
 // ──────────────────────────────────────────────
 
-#[tokio::test]
+#[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires PostgreSQL"]
-async fn create_and_list_breweries() {
-    let app = test_app().await;
-    let username = format!("brewer_{}", uuid::Uuid::new_v4().simple());
+async fn create_and_list_breweries(pool: PgPool) {
+    let app = test_app(pool).await;
+    let username = format!(
+        "brewer_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
+    );
     let (token, _) = register_and_get_token(&app, &username).await;
 
     // Create a brewery
@@ -279,18 +279,21 @@ async fn create_and_list_breweries() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     let breweries = body_json(resp.into_body()).await;
-    assert!(breweries.as_array().unwrap().len() >= 1);
+    assert!(!breweries.as_array().unwrap().is_empty());
 }
 
 // ──────────────────────────────────────────────
 // Beer CRUD
 // ──────────────────────────────────────────────
 
-#[tokio::test]
+#[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires PostgreSQL"]
-async fn create_and_get_beer() {
-    let app = test_app().await;
-    let username = format!("beerlover_{}", uuid::Uuid::new_v4().simple());
+async fn create_and_get_beer(pool: PgPool) {
+    let app = test_app(pool).await;
+    let username = format!(
+        "beerlover_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
+    );
     let (token, _) = register_and_get_token(&app, &username).await;
 
     // Create brewery first
@@ -350,11 +353,11 @@ async fn create_and_get_beer() {
 // Ratings (privacy-first: aggregate only)
 // ──────────────────────────────────────────────
 
-#[tokio::test]
+#[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires PostgreSQL"]
-async fn rate_beer_and_check_aggregate() {
-    let app = test_app().await;
-    let username = format!("rater_{}", uuid::Uuid::new_v4().simple());
+async fn rate_beer_and_check_aggregate(pool: PgPool) {
+    let app = test_app(pool).await;
+    let username = format!("rater_{}", &uuid::Uuid::new_v4().simple().to_string()[..16]);
     let (token, _) = register_and_get_token(&app, &username).await;
 
     // Create brewery + beer
@@ -363,7 +366,9 @@ async fn rate_beer_and_check_aggregate() {
         .uri("/api/breweries")
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {token}"))
-        .body(Body::from(json!({"name": "Rating Brewery", "country": "UK"}).to_string()))
+        .body(Body::from(
+            json!({"name": "Rating Brewery", "country": "UK"}).to_string(),
+        ))
         .unwrap();
     let resp = app.clone().oneshot(req).await.unwrap();
     let brewery = body_json(resp.into_body()).await;
@@ -388,7 +393,9 @@ async fn rate_beer_and_check_aggregate() {
         .uri(format!("/api/beers/{beer_id}/ratings"))
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {token}"))
-        .body(Body::from(json!({"score": 8, "notes": "Great stout!"}).to_string()))
+        .body(Body::from(
+            json!({"score": 8, "notes": "Great stout!"}).to_string(),
+        ))
         .unwrap();
 
     let resp = app.clone().oneshot(req).await.unwrap();
@@ -402,8 +409,8 @@ async fn rate_beer_and_check_aggregate() {
     let resp = app.clone().oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     let agg = body_json(resp.into_body()).await;
-    assert_eq!(agg["count"], 1);
-    assert!(agg["average"].as_f64().unwrap() > 7.9);
+    assert_eq!(agg["rating_count"], 1);
+    assert!(agg["average_score"].as_f64().unwrap() > 7.9);
 
     // Get my own ratings (private, needs auth)
     let req = Request::builder()
@@ -419,11 +426,14 @@ async fn rate_beer_and_check_aggregate() {
     assert_eq!(ratings_arr[0]["score"], 8);
 }
 
-#[tokio::test]
+#[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires PostgreSQL"]
-async fn rating_score_out_of_range_rejected() {
-    let app = test_app().await;
-    let username = format!("badscore_{}", uuid::Uuid::new_v4().simple());
+async fn rating_score_out_of_range_rejected(pool: PgPool) {
+    let app = test_app(pool).await;
+    let username = format!(
+        "badscore_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
+    );
     let (token, _) = register_and_get_token(&app, &username).await;
 
     // Create brewery + beer
@@ -432,7 +442,9 @@ async fn rating_score_out_of_range_rejected() {
         .uri("/api/breweries")
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {token}"))
-        .body(Body::from(json!({"name": "Score Brewery", "country": "NL"}).to_string()))
+        .body(Body::from(
+            json!({"name": "Score Brewery", "country": "NL"}).to_string(),
+        ))
         .unwrap();
     let resp = app.clone().oneshot(req).await.unwrap();
     let brewery = body_json(resp.into_body()).await;
@@ -443,7 +455,8 @@ async fn rating_score_out_of_range_rejected() {
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {token}"))
         .body(Body::from(
-            json!({"name": "Score Test Beer", "brewery_id": brewery["id"], "style": "Lager"}).to_string(),
+            json!({"name": "Score Test Beer", "brewery_id": brewery["id"], "style": "Lager"})
+                .to_string(),
         ))
         .unwrap();
     let resp = app.clone().oneshot(req).await.unwrap();
@@ -452,7 +465,10 @@ async fn rating_score_out_of_range_rejected() {
     // Try to rate with score 11 (out of range, max is 10)
     let req = Request::builder()
         .method("POST")
-        .uri(format!("/api/beers/{}/ratings", beer["id"].as_str().unwrap()))
+        .uri(format!(
+            "/api/beers/{}/ratings",
+            beer["id"].as_str().unwrap()
+        ))
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {token}"))
         .body(Body::from(json!({"score": 11}).to_string()))
@@ -464,7 +480,10 @@ async fn rating_score_out_of_range_rejected() {
     // Try negative score
     let req = Request::builder()
         .method("POST")
-        .uri(format!("/api/beers/{}/ratings", beer["id"].as_str().unwrap()))
+        .uri(format!(
+            "/api/beers/{}/ratings",
+            beer["id"].as_str().unwrap()
+        ))
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {token}"))
         .body(Body::from(json!({"score": -1}).to_string()))
@@ -478,11 +497,14 @@ async fn rating_score_out_of_range_rejected() {
 // Privacy & Data Sovereignty
 // ──────────────────────────────────────────────
 
-#[tokio::test]
+#[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires PostgreSQL"]
-async fn privacy_settings_default_to_private() {
-    let app = test_app().await;
-    let username = format!("privuser_{}", uuid::Uuid::new_v4().simple());
+async fn privacy_settings_default_to_private(pool: PgPool) {
+    let app = test_app(pool).await;
+    let username = format!(
+        "privuser_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
+    );
     let (token, _) = register_and_get_token(&app, &username).await;
 
     let req = Request::builder()
@@ -500,11 +522,14 @@ async fn privacy_settings_default_to_private() {
     assert_eq!(settings["show_stats"], false);
 }
 
-#[tokio::test]
+#[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires PostgreSQL"]
-async fn update_privacy_settings() {
-    let app = test_app().await;
-    let username = format!("updpriv_{}", uuid::Uuid::new_v4().simple());
+async fn update_privacy_settings(pool: PgPool) {
+    let app = test_app(pool).await;
+    let username = format!(
+        "updpriv_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
+    );
     let (token, _) = register_and_get_token(&app, &username).await;
 
     let req = Request::builder()
@@ -539,11 +564,14 @@ async fn update_privacy_settings() {
     assert_eq!(settings["show_ratings"], false);
 }
 
-#[tokio::test]
+#[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires PostgreSQL"]
-async fn data_export_includes_all_user_data() {
-    let app = test_app().await;
-    let username = format!("export_{}", uuid::Uuid::new_v4().simple());
+async fn data_export_includes_all_user_data(pool: PgPool) {
+    let app = test_app(pool).await;
+    let username = format!(
+        "export_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
+    );
     let (token, _) = register_and_get_token(&app, &username).await;
 
     let req = Request::builder()
@@ -559,11 +587,14 @@ async fn data_export_includes_all_user_data() {
     assert!(export.get("privacy_settings").is_some());
 }
 
-#[tokio::test]
+#[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires PostgreSQL"]
-async fn account_deletion_removes_all_data() {
-    let app = test_app().await;
-    let username = format!("deluser_{}", uuid::Uuid::new_v4().simple());
+async fn account_deletion_removes_all_data(pool: PgPool) {
+    let app = test_app(pool).await;
+    let username = format!(
+        "deluser_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
+    );
     let (_, _, recovery_key) = register_user(&app, &username).await;
     let token = login_user(&app, &username, &recovery_key).await;
 
@@ -573,7 +604,9 @@ async fn account_deletion_removes_all_data() {
         .uri("/api/users/me")
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {token}"))
-        .body(Body::from(json!({"recovery_key": recovery_key}).to_string()))
+        .body(Body::from(
+            json!({"recovery_key": recovery_key}).to_string(),
+        ))
         .unwrap();
 
     let resp = app.clone().oneshot(req).await.unwrap();
@@ -601,10 +634,10 @@ async fn account_deletion_removes_all_data() {
 // Auth enforcement
 // ──────────────────────────────────────────────
 
-#[tokio::test]
+#[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires PostgreSQL"]
-async fn unauthenticated_requests_rejected() {
-    let app = test_app().await;
+async fn unauthenticated_requests_rejected(pool: PgPool) {
+    let app = test_app(pool).await;
 
     // Creating a brewery without auth should fail
     let req = Request::builder()

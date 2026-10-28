@@ -1,5 +1,5 @@
-use axum::extract::State;
 use axum::Json;
+use axum::extract::State;
 use serde::{Deserialize, Serialize};
 
 use crate::auth::jwt::AuthUser;
@@ -7,6 +7,7 @@ use crate::db;
 use crate::errors::ApiError;
 use crate::state::AppState;
 use open_tappd_domain::crypto;
+use base64::Engine;
 
 #[derive(Debug, Serialize)]
 pub struct PrivacySettingsResponse {
@@ -27,9 +28,24 @@ pub struct UpdatePrivacyRequest {
 #[derive(Debug, Serialize)]
 pub struct DataExportResponse {
     pub user: DataExportUser,
+    // Compatibility summary: the latest canonical tasting for each beer.
     pub ratings: Vec<DataExportRating>,
+    pub tastings: Vec<DataExportTasting>,
+    pub locations: Vec<db::privacy::ExportLocationRow>,
+    pub created_sessions: Vec<db::privacy::ExportSessionRow>,
+    pub session_memberships: Vec<db::privacy::ExportMembershipRow>,
     pub badges: Vec<DataExportBadge>,
-    pub privacy_settings: PrivacySettingsResponse,
+    pub passkeys: Vec<db::privacy::ExportPasskeyRow>,
+    pub privacy_settings: DataExportPrivacySettings,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DataExportPrivacySettings {
+    pub profile_visibility: String,
+    pub show_ratings: bool,
+    pub show_badges: bool,
+    pub show_stats: bool,
+    pub show_tasting_sessions: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -46,6 +62,32 @@ pub struct DataExportRating {
     pub score: i32,
     pub notes: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DataExportTasting {
+    pub id: uuid::Uuid,
+    pub beer_id: uuid::Uuid,
+    pub beer_name: String,
+    pub brewery_name: String,
+    pub score: i32,
+    pub serving_style: Option<open_tappd_domain::models::tasting::ServingStyle>,
+    pub notes: Option<String>,
+    pub location_id: Option<uuid::Uuid>,
+    pub location_name: Option<String>,
+    pub session_id: Option<uuid::Uuid>,
+    pub session_name: Option<String>,
+    pub tasted_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub photo: Option<DataExportPhoto>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DataExportPhoto {
+    pub content_type: &'static str,
+    pub thumb_base64: String,
+    pub large_base64: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -89,7 +131,7 @@ pub async fn update_privacy_settings(
         _ => {
             return Err(ApiError::Validation(
                 "profile_visibility must be 'public', 'private', or 'friends'".into(),
-            ))
+            ));
         }
     }
 
@@ -116,41 +158,58 @@ pub async fn export_data(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<DataExportResponse>, ApiError> {
-    let user = db::users::find_user_by_id(&state.pool, auth.user_id)
+    let export = db::privacy::export_user_data(&state.pool, auth.user_id)
         .await?
         .ok_or_else(|| ApiError::NotFound("User not found".into()))?;
+    let email = export.user.email_encrypted.as_ref().map(|enc| {
+        crypto::decrypt_field(enc, &state.encryption_key)
+            .unwrap_or_else(|_| "[decryption error]".into())
+    });
 
-    // Decrypt email if present
-    let email = if let Some(ref enc) = user.email_encrypted {
-        Some(
-            crypto::decrypt_field(enc, &state.encryption_key)
-                .unwrap_or_else(|_| "[decryption error]".into()),
-        )
-    } else {
-        None
-    };
-
-    // Get all ratings (no pagination — full export)
-    let ratings = db::ratings::get_user_ratings(&state.pool, auth.user_id, 10000, 0).await?;
-    let export_ratings: Vec<DataExportRating> = ratings
+    let tastings: Vec<DataExportTasting> = export
+        .tastings
         .into_iter()
-        .map(|r| {
-            let notes = r.notes_encrypted.as_ref().and_then(|enc| {
-                crypto::decrypt_field(enc, &state.encryption_key).ok()
-            });
-            DataExportRating {
-                beer_name: r.beer_name,
-                brewery_name: r.brewery_name,
-                score: r.score,
-                notes,
-                created_at: r.created_at,
-            }
+        .map(|t| DataExportTasting {
+            id: t.id,
+            beer_id: t.beer_id,
+            beer_name: t.beer_name,
+            brewery_name: t.brewery_name,
+            score: t.score,
+            serving_style: t.serving_style,
+            notes: t.notes_encrypted.as_ref().map(|enc| {
+                crypto::decrypt_field(enc, &state.encryption_key)
+                    .unwrap_or_else(|_| "[decryption error]".into())
+            }),
+            location_id: t.location_id,
+            location_name: t.location_name,
+            session_id: t.session_id,
+            session_name: t.session_name,
+            tasted_at: t.tasted_at,
+            created_at: t.created_at,
+            updated_at: t.updated_at,
+            photo: t.photo_thumb_jpeg.zip(t.photo_large_jpeg).map(|(thumb, large)| DataExportPhoto {
+                content_type: "image/jpeg",
+                thumb_base64: base64::engine::general_purpose::STANDARD.encode(thumb),
+                large_base64: base64::engine::general_purpose::STANDARD.encode(large),
+            }),
         })
         .collect();
-
-    // Get badges
-    let badges = db::badges::get_user_badges(&state.pool, auth.user_id).await?;
-    let export_badges: Vec<DataExportBadge> = badges
+    // The snapshot is sorted newest first, with deterministic tie breakers.
+    // Preserve the old response shape without omitting history from `tastings`.
+    let mut seen_beers = std::collections::HashSet::new();
+    let ratings = tastings
+        .iter()
+        .filter(|t| seen_beers.insert(t.beer_id))
+        .map(|t| DataExportRating {
+            beer_name: t.beer_name.clone(),
+            brewery_name: t.brewery_name.clone(),
+            score: t.score,
+            notes: t.notes.clone(),
+            created_at: t.tasted_at,
+        })
+        .collect();
+    let badges = export
+        .badges
         .into_iter()
         .map(|b| DataExportBadge {
             name: b.badge_name,
@@ -159,24 +218,25 @@ pub async fn export_data(
         })
         .collect();
 
-    // Get privacy settings
-    let settings = db::privacy::get_privacy_settings(&state.pool, auth.user_id)
-        .await?
-        .ok_or_else(|| ApiError::NotFound("Privacy settings not found".into()))?;
-
     Ok(Json(DataExportResponse {
         user: DataExportUser {
-            username: user.username,
+            username: export.user.username,
             email,
-            display_name: user.display_name,
+            display_name: export.user.display_name,
         },
-        ratings: export_ratings,
-        badges: export_badges,
-        privacy_settings: PrivacySettingsResponse {
-            profile_visibility: settings.profile_visibility,
-            show_ratings: settings.show_ratings,
-            show_badges: settings.show_badges,
-            show_stats: settings.show_stats,
+        ratings,
+        tastings,
+        locations: export.locations,
+        created_sessions: export.created_sessions,
+        session_memberships: export.session_memberships,
+        badges,
+        passkeys: export.passkeys,
+        privacy_settings: DataExportPrivacySettings {
+            profile_visibility: export.settings.profile_visibility,
+            show_ratings: export.settings.show_ratings,
+            show_badges: export.settings.show_badges,
+            show_stats: export.settings.show_stats,
+            show_tasting_sessions: export.settings.show_tasting_sessions,
         },
     }))
 }
@@ -200,7 +260,7 @@ pub async fn delete_account(
         .verify_password(normalized_key.as_bytes(), &parsed_hash)
         .map_err(|_| ApiError::Unauthorized("Invalid recovery key".into()))?;
 
-    // Hard delete all user data (cascades via FK constraints)
+    // Remove owned context and detach shared references in one transaction.
     db::privacy::delete_user_data(&state.pool, auth.user_id).await?;
 
     tracing::info!("User {} deleted their account", auth.user_id);

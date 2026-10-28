@@ -1,5 +1,5 @@
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -73,6 +73,7 @@ pub async fn create_location(
 /// GET /api/locations — list active locations
 pub async fn list_locations(
     State(state): State<AppState>,
+    auth: AuthUser,
     Query(params): Query<ListLocationsParams>,
 ) -> Result<Json<Vec<LocationResponse>>, ApiError> {
     let limit = params.limit.unwrap_or(20).min(100);
@@ -80,6 +81,7 @@ pub async fn list_locations(
 
     let rows = db::locations::list_locations(
         &state.pool,
+        auth.user_id,
         params.location_type,
         params.search.as_deref(),
         limit,
@@ -93,13 +95,31 @@ pub async fn list_locations(
 /// GET /api/locations/:id — get location details
 pub async fn get_location(
     State(state): State<AppState>,
+    auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<LocationResponse>, ApiError> {
     let row = db::locations::get_location(&state.pool, id)
         .await?
         .ok_or_else(|| ApiError::NotFound("Location not found".into()))?;
 
+    if row.created_by != auth.user_id {
+        return Err(ApiError::NotFound("Location not found".into()));
+    }
+
     Ok(Json(location_to_response(row)))
+}
+
+/// Locations are personal data, including home addresses and venue metadata.
+pub(crate) async fn require_owned_location(
+    pool: &sqlx::PgPool,
+    id: Uuid,
+    user_id: Uuid,
+) -> Result<(), ApiError> {
+    db::locations::get_location(pool, id)
+        .await?
+        .filter(|location| location.created_by == user_id && location.is_active)
+        .ok_or_else(|| ApiError::NotFound("Location not found".into()))?;
+    Ok(())
 }
 
 /// PUT /api/locations/:id — update location (creator only)

@@ -29,33 +29,14 @@ pub struct SessionParticipantRow {
     pub joined_at: DateTime<Utc>,
 }
 
-/// Generate a 6-character alphanumeric join code
+/// Generate an unpredictable invitation code using the existing UUID entropy source.
 fn generate_join_code() -> String {
-    use std::fmt::Write;
-    let bytes: [u8; 4] = rand_bytes();
-    let mut code = String::with_capacity(6);
-    let charset = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I ambiguity
-    for i in 0..6 {
-        let idx = (bytes[i % 4].wrapping_add(i as u8 * 37)) as usize % charset.len();
-        let _ = write!(code, "{}", charset[idx] as char);
-    }
-    code
+    const CHARSET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    uuid::Uuid::new_v4().as_bytes()[..6]
+        .iter()
+        .map(|byte| CHARSET[usize::from(*byte) % CHARSET.len()] as char)
+        .collect()
 }
-
-fn rand_bytes() -> [u8; 4] {
-    let mut buf = [0u8; 4];
-    // Use timestamp + thread id for basic randomness without a crypto dep
-    let t = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    buf[0] = (t & 0xFF) as u8;
-    buf[1] = ((t >> 8) & 0xFF) as u8;
-    buf[2] = ((t >> 16) & 0xFF) as u8;
-    buf[3] = ((t >> 24) & 0xFF) as u8;
-    buf
-}
-
 pub async fn create_session(
     pool: &PgPool,
     name: &str,
@@ -116,7 +97,10 @@ pub async fn get_session(
 ) -> Result<Option<TastingSessionRow>, sqlx::Error> {
     sqlx::query_as::<_, TastingSessionRow>(
         r#"
-        SELECT id, name, description, location_id, created_by, join_code, visibility,
+        SELECT id, name, description,
+               CASE WHEN EXISTS (SELECT 1 FROM locations l WHERE l.id = tasting_sessions.location_id
+                                 AND l.created_by = tasting_sessions.created_by)
+                    THEN location_id END AS location_id, created_by, join_code, visibility,
                started_at, ended_at, planned_start, planned_end, auto_end_minutes,
                created_at, updated_at
         FROM tasting_sessions WHERE id = $1
@@ -133,7 +117,10 @@ pub async fn get_session_by_code(
 ) -> Result<Option<TastingSessionRow>, sqlx::Error> {
     sqlx::query_as::<_, TastingSessionRow>(
         r#"
-        SELECT id, name, description, location_id, created_by, join_code, visibility,
+        SELECT id, name, description,
+               CASE WHEN EXISTS (SELECT 1 FROM locations l WHERE l.id = tasting_sessions.location_id
+                                 AND l.created_by = tasting_sessions.created_by)
+                    THEN location_id END AS location_id, created_by, join_code, visibility,
                started_at, ended_at, planned_start, planned_end, auto_end_minutes,
                created_at, updated_at
         FROM tasting_sessions WHERE join_code = $1
@@ -144,7 +131,7 @@ pub async fn get_session_by_code(
     .await
 }
 
-/// List sessions visible to a user: public sessions + sessions user participates in
+/// Session context is only visible to its owner and participants.
 pub async fn list_sessions(
     pool: &PgPool,
     user_id: Uuid,
@@ -154,13 +141,14 @@ pub async fn list_sessions(
 ) -> Result<Vec<TastingSessionRow>, sqlx::Error> {
     sqlx::query_as::<_, TastingSessionRow>(
         r#"
-        SELECT DISTINCT ts.id, ts.name, ts.description, ts.location_id, ts.created_by,
+        SELECT DISTINCT ts.id, ts.name, ts.description, l.id AS location_id, ts.created_by,
                ts.join_code, ts.visibility, ts.started_at, ts.ended_at,
                ts.planned_start, ts.planned_end, ts.auto_end_minutes,
                ts.created_at, ts.updated_at
         FROM tasting_sessions ts
+        LEFT JOIN locations l ON l.id = ts.location_id AND l.created_by = ts.created_by
         LEFT JOIN session_participants sp ON sp.session_id = ts.id AND sp.user_id = $1
-        WHERE (ts.visibility = 'public' OR sp.user_id IS NOT NULL)
+        WHERE (ts.created_by = $1 OR sp.user_id IS NOT NULL)
           AND ($2::bool = false OR ts.ended_at IS NULL)
         ORDER BY ts.started_at DESC
         LIMIT $3 OFFSET $4
@@ -174,11 +162,7 @@ pub async fn list_sessions(
     .await
 }
 
-pub async fn end_session(
-    pool: &PgPool,
-    id: Uuid,
-    creator_id: Uuid,
-) -> Result<bool, sqlx::Error> {
+pub async fn end_session(pool: &PgPool, id: Uuid, creator_id: Uuid) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         r#"
         UPDATE tasting_sessions
@@ -229,13 +213,12 @@ pub async fn is_participant(
     session_id: Uuid,
     user_id: Uuid,
 ) -> Result<bool, sqlx::Error> {
-    let row: Option<(i64,)> = sqlx::query_as(
-        "SELECT 1 FROM session_participants WHERE session_id = $1 AND user_id = $2",
-    )
-    .bind(session_id)
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await?;
+    let row: Option<(i32,)> =
+        sqlx::query_as("SELECT 1 FROM session_participants WHERE session_id = $1 AND user_id = $2")
+            .bind(session_id)
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await?;
     Ok(row.is_some())
 }
 

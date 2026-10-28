@@ -1,131 +1,42 @@
 <#
 .SYNOPSIS
-    Run database migrations for Open Tappd.
-
+    Apply database migrations using the application's SQLx migrator.
 .DESCRIPTION
-    Applies all SQLx migrations from the migrations/ folder to the PostgreSQL
-    database. Uses sqlx-cli if installed, otherwise falls back to running the
-    SQL files directly via psql inside the container.
-
+    DATABASE_URL must be set in the process environment. For local development,
+    explicitly select a dotenv file with -EnvFile; existing environment values
+    take precedence. No default credentials, container runtime, SQL replay, or
+    alternate migration tracker is used. Stop application writers and take a
+    restorable backup before applying migrations to an existing database.
+.EXAMPLE
+    .\scripts\migrate-db.ps1 -EnvFile .env
 .EXAMPLE
     .\scripts\migrate-db.ps1
-    .\scripts\migrate-db.ps1 -Force   # re-apply all migrations
 #>
+[CmdletBinding()]
 param(
-    [switch]$Force
+    [string]$EnvFile
 )
 
 $ErrorActionPreference = "Stop"
 
-$ContainerName = "opentappd-db"
-$DbName        = "opentappd"
-$DbUser        = "opentappd"
-$MigrationsDir = Join-Path $PSScriptRoot "..\migrations"
-
-# ── Load .env if available ────────────────────────────────────────
-$envFile = Join-Path $PSScriptRoot "..\.env"
-if (Test-Path $envFile) {
-    Get-Content $envFile | ForEach-Object {
-        if ($_ -match '^\s*([^#][^=]+)=(.*)$') {
-            $key = $matches[1].Trim()
-            $val = $matches[2].Trim()
-            [System.Environment]::SetEnvironmentVariable($key, $val, "Process")
-        }
-    }
-    Write-Host "Loaded .env" -ForegroundColor DarkGray
+# Resolve an explicitly selected file relative to the caller before changing cwd.
+$migrationArgs = @()
+if ($EnvFile) {
+    $resolvedEnvFile = (Resolve-Path -LiteralPath $EnvFile).Path
+    $migrationArgs = @("--", "--env-file", $resolvedEnvFile)
 }
 
-# ── Check container is running ────────────────────────────────────
-$running = podman ps --filter "name=$ContainerName" --format "{{.Names}}" 2>$null
-if ($running -ne $ContainerName) {
-    Write-Host "Database container '$ContainerName' is not running." -ForegroundColor Red
-    Write-Host "Run '.\scripts\start-db.ps1' first." -ForegroundColor Yellow
-    exit 1
-}
-
-# ── Try sqlx-cli first ───────────────────────────────────────────
-$hasSqlx = Get-Command sqlx -ErrorAction SilentlyContinue
-if ($hasSqlx) {
-    Write-Host "Running migrations with sqlx-cli..." -ForegroundColor Cyan
-    $dbUrl = $env:DATABASE_URL
-    if (-not $dbUrl) {
-        $dbUrl = "postgres://${DbUser}:opentappd_dev@localhost:5432/${DbName}"
-    }
-    $env:DATABASE_URL = $dbUrl
-    Push-Location (Join-Path $PSScriptRoot "..")
-    sqlx migrate run --source migrations
+Push-Location (Join-Path $PSScriptRoot "..")
+try {
+    Write-Host "Applying migrations with SQLx..." -ForegroundColor Cyan
+    & cargo run --locked -p open-tappd-api --bin migrate @migrationArgs
+    $migrationExitCode = $LASTEXITCODE
+} finally {
     Pop-Location
-
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "Migrations applied successfully with sqlx-cli!" -ForegroundColor Green
-        exit 0
-    } else {
-        Write-Host "sqlx-cli failed, falling back to psql..." -ForegroundColor Yellow
-    }
 }
 
-# ── Fallback: run SQL files via psql in the container ─────────────
-Write-Host "Running migrations via psql in container..." -ForegroundColor Cyan
-
-# Get sorted migration files
-$migrationFiles = Get-ChildItem -Path $MigrationsDir -Filter "*.sql" | Sort-Object Name
-
-if ($migrationFiles.Count -eq 0) {
-    Write-Host "No migration files found in $MigrationsDir" -ForegroundColor Yellow
-    exit 0
+if ($migrationExitCode -ne 0) {
+    Write-Error "Migration command failed. No fallback or automatic replay was attempted."
+    exit $migrationExitCode
 }
-
-# Create our own tracking table (separate from SQLx's _sqlx_migrations)
-$createTracker = @"
-CREATE TABLE IF NOT EXISTS _script_migrations (
-    version BIGINT PRIMARY KEY,
-    description TEXT NOT NULL,
-    applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-"@
-
-podman exec -i $ContainerName psql -U $DbUser -d $DbName -c $createTracker 2>$null
-
-foreach ($file in $migrationFiles) {
-    # Extract version number from filename (e.g., 20260508000001 from 20260508000001_initial_schema.sql)
-    if ($file.Name -match '^(\d+)_(.+)\.sql$') {
-        $version = [long]$matches[1]
-        $description = $matches[2] -replace '_', ' '
-    } else {
-        Write-Host "  Skipping $($file.Name) (unexpected filename format)" -ForegroundColor Yellow
-        continue
-    }
-
-    # Check if already applied
-    if (-not $Force) {
-        $check = podman exec $ContainerName psql -U $DbUser -d $DbName -t -c "SELECT COUNT(*) FROM _script_migrations WHERE version = $version;" 2>$null
-        if ($check -and $check.Trim() -gt "0") {
-            Write-Host "  skip $($file.Name) (already applied)" -ForegroundColor DarkGray
-            continue
-        }
-    }
-
-    Write-Host "  Applying $($file.Name)..." -ForegroundColor Cyan
-    $sql = Get-Content $file.FullName -Raw
-
-    # Run the migration
-    $sql | podman exec -i $ContainerName psql -U $DbUser -d $DbName -v ON_ERROR_STOP=1
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  FAILED: $($file.Name)" -ForegroundColor Red
-        exit 1
-    }
-
-    # Record it
-    $escapedDesc = $description -replace "'", "''"
-    $record = "INSERT INTO _script_migrations (version, description) VALUES ($version, '$escapedDesc') ON CONFLICT (version) DO NOTHING;"
-    podman exec $ContainerName psql -U $DbUser -d $DbName -c $record 2>$null
-
-    Write-Host "  done  $($file.Name)" -ForegroundColor Green
-}
-
-Write-Host ""
-Write-Host "All migrations applied!" -ForegroundColor Green
-Write-Host ""
-Write-Host "You can now start the API server:" -ForegroundColor Yellow
-Write-Host "  cargo run -p open-tappd-api" -ForegroundColor White
+Write-Host "Migrations applied successfully." -ForegroundColor Green

@@ -12,7 +12,36 @@ env:
   IMAGE_NAME: open-drink-tasting/open-drink-tasting
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: test-only
+          POSTGRES_DB: opentappd_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:test-only@localhost:5432/opentappd_test
+    steps:
+      - uses: actions/checkout@v5
+      - name: Test including isolated PostgreSQL regressions
+        run: cargo test --workspace --locked -- --include-ignored
+      - name: Check browser target
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo check -p open-tappd-web --target wasm32-unknown-unknown --locked
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read

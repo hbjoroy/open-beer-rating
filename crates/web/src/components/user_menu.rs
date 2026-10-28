@@ -52,31 +52,31 @@ pub fn UserMenu(
                     let on_nav_add = on_nav.clone();
                     let on_nav_tastings = on_nav.clone();
                     view! {
-                        <button class="user-menu-trigger logged-in" on:click=toggle_menu>
+                        <button type="button" aria-expanded=move || menu_open.get() aria-controls="account-menu" class="user-menu-trigger logged-in" on:click=toggle_menu>
                             <span class="user-avatar">"👤"</span>
                             <span class="user-name">{display}</span>
                             <span class="dropdown-arrow">{move || if menu_open.get() { "▲" } else { "▼" }}</span>
                         </button>
-                        <div class="user-dropdown" class:open=move || menu_open.get()>
-                            <a class="dropdown-item" on:click=move |_| { close_menu(); on_nav_add("rate-beer"); }>"🍺 Rate a Beer"</a>
-                            <a class="dropdown-item" on:click=move |_| { close_menu(); on_nav_tastings("my-tastings"); }>"📝 My Tastings"</a>
+                        <div id="account-menu" class="user-dropdown" class:open=move || menu_open.get()>
+                            <button type="button" class="dropdown-item" on:click=move |_| { close_menu(); on_nav_add("rate-beer"); }>"🍺 Rate a Beer"</button>
+                            <button type="button" class="dropdown-item" on:click=move |_| { close_menu(); on_nav_tastings("my-tastings"); }>"📝 My Tastings"</button>
                             <div class="dropdown-divider"></div>
-                            <a class="dropdown-item" on:click=move |_| { close_menu(); on_nav_profile("profile"); }>"⚙️ Profile"</a>
-                            <a class="dropdown-item" on:click=move |_| { close_menu(); crate::pages::login::set_autologon(false); set_token.set(None); }>"🚪 Sign Out"</a>
+                            <button type="button" class="dropdown-item" on:click=move |_| { close_menu(); on_nav_profile("profile"); }>"⚙️ Profile"</button>
+                            <button type="button" class="dropdown-item" on:click=move |_| { close_menu(); crate::pages::login::set_autologon(false); set_token.set(None); }>"🚪 Sign Out"</button>
                         </div>
                     }.into_any()
                 } else {
                     let on_nav_login = on_nav.clone();
                     let on_nav_register = on_nav.clone();
                     view! {
-                        <button class="user-menu-trigger logged-out" on:click=toggle_menu>
+                        <button type="button" aria-expanded=move || menu_open.get() aria-controls="account-menu" class="user-menu-trigger logged-out" on:click=toggle_menu>
                             <span class="user-avatar">"👤"</span>
                             <span class="user-name">"Sign In"</span>
                             <span class="dropdown-arrow">{move || if menu_open.get() { "▲" } else { "▼" }}</span>
                         </button>
-                        <div class="user-dropdown" class:open=move || menu_open.get()>
-                            <a class="dropdown-item" on:click=move |_| { close_menu(); on_nav_login("login"); }>"🔑 Sign In"</a>
-                            <a class="dropdown-item" on:click=move |_| { close_menu(); on_nav_register("register"); }>"📝 Create Account"</a>
+                        <div id="account-menu" class="user-dropdown" class:open=move || menu_open.get()>
+                            <button type="button" class="dropdown-item" on:click=move |_| { close_menu(); on_nav_login("login"); }>"🔑 Sign In"</button>
+                            <button type="button" class="dropdown-item" on:click=move |_| { close_menu(); on_nav_register("register"); }>"📝 Create Account"</button>
                         </div>
                     }.into_any()
                 }

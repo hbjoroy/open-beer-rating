@@ -1,5 +1,5 @@
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -70,9 +70,7 @@ pub async fn create_session(
     validation::validate_auto_end_minutes(auto_end)?;
 
     if let Some(loc_id) = req.location_id {
-        db::locations::get_location(&state.pool, loc_id)
-            .await?
-            .ok_or_else(|| ApiError::NotFound("Location not found".into()))?;
+        super::locations::require_owned_location(&state.pool, loc_id, auth.user_id).await?;
     }
 
     let visibility = req.visibility.unwrap_or(SessionVisibility::Participants);
@@ -95,7 +93,7 @@ pub async fn create_session(
 
     Ok((
         axum::http::StatusCode::CREATED,
-        Json(session_to_response(row, None)),
+        Json(session_to_response(row, None, auth.user_id)),
     ))
 }
 
@@ -115,7 +113,7 @@ pub async fn list_sessions(
 
     let results: Vec<SessionResponse> = rows
         .into_iter()
-        .map(|r| session_to_response(r, None))
+        .map(|r| session_to_response(r, None, auth.user_id))
         .collect();
 
     Ok(Json(results))
@@ -135,24 +133,24 @@ pub async fn get_session(
     check_session_access(&state, &row, auth.user_id).await?;
 
     // Include participants if visibility allows
-    let participants = if row.visibility != SessionVisibility::Private || row.created_by == auth.user_id
-    {
-        let parts = db::tasting_sessions::get_participants(&state.pool, id).await?;
-        Some(
-            parts
-                .into_iter()
-                .map(|p| ParticipantResponse {
-                    user_id: p.user_id,
-                    username: p.username,
-                    joined_at: p.joined_at,
-                })
-                .collect(),
-        )
-    } else {
-        None
-    };
+    let participants =
+        if row.visibility != SessionVisibility::Private || row.created_by == auth.user_id {
+            let parts = db::tasting_sessions::get_participants(&state.pool, id).await?;
+            Some(
+                parts
+                    .into_iter()
+                    .map(|p| ParticipantResponse {
+                        user_id: p.user_id,
+                        username: p.username,
+                        joined_at: p.joined_at,
+                    })
+                    .collect(),
+            )
+        } else {
+            None
+        };
 
-    Ok(Json(session_to_response(row, participants)))
+    Ok(Json(session_to_response(row, participants, auth.user_id)))
 }
 
 /// POST /api/tasting-sessions/:id/join — join by ID
@@ -195,7 +193,7 @@ pub async fn join_session_by_code(
 
     db::tasting_sessions::join_session(&state.pool, session.id, auth.user_id).await?;
 
-    Ok(Json(session_to_response(session, None)))
+    Ok(Json(session_to_response(session, None, auth.user_id)))
 }
 
 /// POST /api/tasting-sessions/:id/leave — leave session
@@ -250,7 +248,10 @@ pub async fn get_session_tastings(
         .into_iter()
         .map(|r| {
             let notes = if r.user_id == auth.user_id {
-                super::tastings::decrypt_notes_pub(r.notes_encrypted.as_deref(), &state.encryption_key)
+                super::tastings::decrypt_notes_pub(
+                    r.notes_encrypted.as_deref(),
+                    &state.encryption_key,
+                )
             } else {
                 None // Don't expose other users' notes
             };
@@ -262,12 +263,21 @@ pub async fn get_session_tastings(
                 score: r.score,
                 serving_style: r.serving_style,
                 notes,
-                location_id: r.location_id,
-                location_name: r.location_name,
+                location_id: if r.user_id == auth.user_id {
+                    r.location_id
+                } else {
+                    None
+                },
+                location_name: if r.user_id == auth.user_id {
+                    r.location_name
+                } else {
+                    None
+                },
                 session_id: r.session_id,
                 session_name: r.session_name,
                 tasted_at: r.tasted_at,
                 created_at: r.created_at,
+                has_photo: false,
             }
         })
         .collect();
@@ -280,30 +290,29 @@ async fn check_session_access(
     session: &db::tasting_sessions::TastingSessionRow,
     user_id: Uuid,
 ) -> Result<(), ApiError> {
-    match session.visibility {
-        SessionVisibility::Public => Ok(()),
-        SessionVisibility::Participants | SessionVisibility::Private => {
-            if session.created_by == user_id {
-                return Ok(());
-            }
-            if db::tasting_sessions::is_participant(&state.pool, session.id, user_id).await? {
-                Ok(())
-            } else {
-                Err(ApiError::NotFound("Session not found".into()))
-            }
-        }
+    if session.created_by == user_id
+        || db::tasting_sessions::is_participant(&state.pool, session.id, user_id).await?
+    {
+        Ok(())
+    } else {
+        Err(ApiError::NotFound("Session not found".into()))
     }
 }
 
 fn session_to_response(
     row: db::tasting_sessions::TastingSessionRow,
     participants: Option<Vec<ParticipantResponse>>,
+    viewer_id: Uuid,
 ) -> SessionResponse {
     SessionResponse {
         id: row.id,
         name: row.name,
         description: row.description,
-        location_id: row.location_id,
+        location_id: if row.created_by == viewer_id {
+            row.location_id
+        } else {
+            None
+        },
         created_by: row.created_by,
         join_code: row.join_code,
         visibility: row.visibility,

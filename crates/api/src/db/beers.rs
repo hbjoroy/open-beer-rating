@@ -47,12 +47,12 @@ pub async fn list_beers(
 ) -> Result<Vec<BeerRow>, sqlx::Error> {
     sqlx::query_as::<_, BeerRow>(
         r#"
-        SELECT id, brewery_id, name, style, abv, description, created_at
-        FROM beers
-        WHERE ($1::uuid IS NULL OR brewery_id = $1)
-          AND ($2::text IS NULL OR style ILIKE $2)
-          AND ($3::text IS NULL OR name ILIKE '%' || $3 || '%')
-        ORDER BY name
+        SELECT b.id, b.brewery_id, b.name, b.style, b.abv, b.description, b.created_at
+        FROM beers b JOIN breweries br ON br.id = b.brewery_id
+        WHERE ($1::uuid IS NULL OR b.brewery_id = $1)
+          AND ($2::text IS NULL OR b.style ILIKE $2)
+          AND ($3::text IS NULL OR b.name ILIKE '%' || $3 || '%' OR br.name ILIKE '%' || $3 || '%')
+        ORDER BY b.name, b.id
         LIMIT $4 OFFSET $5
         "#,
     )

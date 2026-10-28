@@ -39,6 +39,10 @@ pub fn create_router(state: state::AppState) -> Router {
         .route("/api/tastings/{id}", get(routes::tastings::get_tasting))
         .route("/api/tastings/{id}", put(routes::tastings::update_tasting))
         .route("/api/tastings/{id}", delete(routes::tastings::delete_tasting))
+        .route("/api/tastings/{id}/photo", put(routes::tasting_photos::upload_photo)
+            .delete(routes::tasting_photos::delete_photo)
+            .layer(axum::extract::DefaultBodyLimit::max(routes::tasting_photos::MAX_UPLOAD_BYTES)))
+        .route("/api/tastings/{id}/photo/{variant}", get(routes::tasting_photos::get_photo))
         .route("/api/beers/{id}/tastings", get(routes::tastings::get_beer_tastings))
         // Tasting Sessions
         .route("/api/tasting-sessions", post(routes::tasting_sessions::create_session))

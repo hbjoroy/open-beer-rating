@@ -1,8 +1,12 @@
 [package]
 name = "open-tappd-api"
+default-run = "open-tappd-api"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[features]
+external-heic-fixture-tests = []
 
 [dependencies]
 open-tappd-domain = { workspace = true, features = ["sqlx-support"] }
@@ -25,6 +29,9 @@ hmac = "0.12"
 sha2 = "0.10"
 open-tappd-webauthn = { path = "../webauthn" }
 url = "2"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
+# Exact pin: upload preflight guards are reviewed against this decoder's internals.
+heic-rs = { version = "=0.1.4", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

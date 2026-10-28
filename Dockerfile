@@ -103,8 +103,9 @@ RUN case "${TARGETARCH:-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}" i
       amd64) RUST_TARGET=x86_64-unknown-linux-gnu ;; \
       arm64) RUST_TARGET=aarch64-unknown-linux-gnu ;; \
     esac && \
-    cargo zigbuild --release --package open-tappd-api --target $RUST_TARGET && \
-    cp target/$RUST_TARGET/release/open-tappd-api /app/open-tappd-api
+    cargo zigbuild --locked --release --package open-tappd-api --bins --target $RUST_TARGET && \
+    cp target/$RUST_TARGET/release/open-tappd-api /app/open-tappd-api && \
+    cp target/$RUST_TARGET/release/migrate /app/migrate
 
 # ------ Stage 5: Build WASM frontend (arch-independent) ------
 FROM --platform=$BUILDPLATFORM rust:1.95-trixie AS wasm-builder
@@ -153,11 +154,12 @@ WORKDIR /app
 
 # Copy the cross-compiled API binary
 COPY --from=api-builder /app/open-tappd-api ./
+COPY --from=api-builder /app/migrate ./
 
 # Copy the WASM frontend
 COPY --from=wasm-builder /app/crates/web/dist ./static/
 
-# Copy migrations (applied at startup)
+# Keep migration sources for inspection; run /app/migrate explicitly before rollout.
 COPY migrations/ ./migrations/
 
 # Set ownership

@@ -31,6 +31,12 @@ Existing beer rating apps are closed-source and centralized. Your drinking data 
 
 ## Features
 
+Backend consolidation update (2026-10-28): tasting history is now the canonical
+rating source, public individual activity is disabled, and locations/session
+context have stricter access rules. Some account capabilities below remain
+API-only until the UI phase. See [migration and verification notes](docs/BACKEND_MIGRATION.md)
+before upgrading an existing database; migration is an explicit maintenance step.
+
 - 🍺 **Beer & Brewery catalog** — Community-contributed database
 - 📊 **0–10 rating scale** — More granularity than 0–5
 - 🍻 **Tasting sessions** — Create or join group tasting events with shareable codes
@@ -80,7 +86,10 @@ cp .env.example .env
 # Build the workspace
 cargo build
 
-# Run the API server (applies migrations on startup)
+# Apply migrations explicitly (stop writers and back up existing databases first)
+cargo run -p open-tappd-api --bin migrate -- --env-file .env
+
+# Run the API server
 cargo run -p open-tappd-api
 
 # Run unit tests
