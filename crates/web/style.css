@@ -1562,3 +1562,8 @@ button:disabled { cursor: wait; opacity: .65; }
 .import-page p, .import-page details { overflow-wrap: anywhere; }
 .import-panel details { margin-block: 1rem; }
 .import-panel summary { cursor: pointer; padding-block: .5rem; }
+
+.import-notes { padding: .75rem 1rem; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+.import-notes ul { padding-left: 1.25rem; }
+.import-notes li { margin-block: .75rem; }
+.import-warning { padding: .75rem; border-left: 3px solid var(--accent, #e6ac00); }

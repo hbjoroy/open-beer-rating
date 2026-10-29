@@ -38,29 +38,38 @@ memory and is not retained by the server or committed to Git.
 - `POST /api/imports/untappd`: same bytes, Bearer authorization, and the returned
   receipt in `X-Import-Preview`. Receipts bind the file, account, matching decisions
   and report for 30 minutes. Catalog changes require a new preview.
-- 16 MiB / 10,000-row bounds. Invalid rows and conflicting identities abort the
-  entire import. A preview performs the same transaction and rolls it back.
+- 16 MiB / 10,000-row bounds. Invalid file structure aborts the import. Each check-in uses a savepoint: unresolved
+  catalog identities skip only that check-in; an ambiguous venue omits only the
+  venue link. A preview performs the same transaction and rolls it back.
 - Source IDs win over names. Unlinked catalog rows can be adopted when their
-  normalized names and available geography match; beers must have the same
-  brewery and compatible style/ABV. Multiple candidates or contradictory beer
-  identity return 409 for catalog review. No fuzzy name merging is performed.
+  normalized names and available geography match. A unique beer name within the
+  same brewery is adopted despite differing style descriptions or ABV: existing
+  catalog details are retained and original source details preserved privately.
+  Multiple candidates or contradictory beer identity are reported as skipped
+  check-ins, never as a requirement for the user to edit the catalog. An ambiguous
+  venue is omitted while the tasting imports. No fuzzy name merging is performed.
   Distinct source beer IDs remain distinct products, even with identical names.
 - A database advisory lock serializes imports across API replicas. Catalog table
   locks cover matching against ordinary catalog writes. Unique constraints back
   the source identities and `(user_id, checkin_id)` idempotency.
 - Reimport skips existing check-ins and never overwrites subsequent manual edits.
-  Identical repeated rows count once; contradictory duplicates fail. Deleting a
+  Repeated check-in IDs count once; the last copy is used, and conflicting copies
+  are explained in the report. Deleting a
   tasting also deletes its provenance, so a later deliberate import can recreate it.
 - Dates preserve the instant in UTC. Scores are doubled and rounded half-up to the
   integer 0-10 scale. Missing/null/empty scores are reported and skipped, not
   fabricated as zero. A real numeric zero remains a zero.
 - Notes use existing field encryption. The original rating, source IDs, serving
-  description, IBU, flavor profiles, purchase venue and photo URL are encrypted
+  description, original beer/brewery/venue details, IBU, flavor profiles, purchase venue and photo URL are encrypted
   provenance included in the owner's data export. URLs are not fetched or rendered
   as third-party images. No imported friends, toasts, comments, global scores or
   Untappd badges are stored. Image download is a separate future feature.
 - Shared venues carry city/country/state/coordinates. They are searchable by name
   or city; creation reuses a matching normalized name/city/country entry.
+- Preview and completion include automatic-resolution notices, skipped check-ins
+  and omitted venues. The UI displays a bounded list and offers the full report as
+  a private, temporary browser download. The confirmation states how many tastings
+  will be imported. Catalog corrections invalidate a preview when exclusions change.
 
 ## Verification
 
@@ -75,6 +84,8 @@ Local opt-in rehearsal (the personal fixture is deliberately absent from CI):
 ```powershell
 $env:DATABASE_URL = 'postgres://postgres:local-review-only@127.0.0.1:55432/opentappd_test'
 $env:UNTAPPD_FIXTURE_PATH = 'S:\Source\open-beer-rating\untappd-26-10-28.json'
+# Optional, local-only snapshot of the shared catalog to reproduce existing matches:
+$env:UNTAPPD_CATALOG_FIXTURE_PATH = 'S:\Source\open-beer-rating\target\production-catalog.json'
 cargo test -p open-tappd-api --test untappd_import --features external-untappd-fixture-tests personal_export_three_users -- --ignored --nocapture
 ```
 
@@ -82,6 +93,11 @@ The supplied 4,240-row export imported 4,234 rated check-ins per account: 2,808
 beers, 798 breweries and 709 venues shared by three accounts (12,702 tastings).
 Six unrated check-ins were reported; a repeated import added zero. The full file
 also completed through the local browser's upload, preview and confirmation UI.
+The 2026-10-29 robustness regression additionally seeded the actual production
+catalog before importing the full export. All 4,234 rated entries were importable;
+Dogs Allowed reused its existing UUID despite IPAImperial versus Untappd's longer
+style description. Three accounts shared the resulting catalog and reimport added
+zero check-ins. No schema change is required for this follow-up.
 
 ---
 

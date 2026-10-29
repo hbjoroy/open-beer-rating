@@ -238,7 +238,7 @@ async fn links_preexisting_catalog_without_overwriting_it(pool: PgPool) {
 
 #[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires dedicated PostgreSQL test server"]
-async fn validation_and_ambiguous_matches_roll_back_everything(pool: PgPool) {
+async fn invalid_files_roll_back_and_catalog_conflicts_are_reported(pool: PgPool) {
     let _guard = TEST_LOCK.lock().await;
     let app = app(pool.clone());
     let (_, token) = user(&pool, "alice").await;
@@ -270,19 +270,9 @@ async fn validation_and_ambiguous_matches_roll_back_everything(pool: PgPool) {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(
-        request(
-            &app,
-            "POST",
-            "/api/imports/untappd/preview",
-            Some(&token),
-            None,
-            fixture()
-        )
-        .await
-        .0,
-        StatusCode::CONFLICT
-    );
+    let p = preview(&app, &token, &fixture()).await;
+    assert_eq!(p["report"]["imported"], 0);
+    assert_eq!(p["report"]["skipped_checkins"].as_array().unwrap().len(), 1);
     assert_eq!(counts(&pool).await, (2, 0, 0, 0));
     sqlx::query("DELETE FROM breweries")
         .execute(&pool)
@@ -290,22 +280,22 @@ async fn validation_and_ambiguous_matches_roll_back_everything(pool: PgPool) {
         .unwrap();
     let mut data = fixture();
     let mut duplicate = data[0].clone();
-    duplicate["comment"] = json!("conflicting data");
+    duplicate["comment"] = json!("updated note");
     data.as_array_mut().unwrap().push(duplicate);
-    assert_eq!(
-        request(
-            &app,
-            "POST",
-            "/api/imports/untappd/preview",
-            Some(&token),
-            None,
-            data
-        )
-        .await
-        .0,
-        StatusCode::UNPROCESSABLE_ENTITY
-    );
-    assert_eq!(counts(&pool).await, (0, 0, 0, 0));
+    let r = import(&app, &token, &data).await;
+    assert_eq!(r["report"]["duplicate_rows"], 1);
+    assert_eq!(r["report"]["imported"], 1);
+    assert_eq!(r["report"]["notices"].as_array().unwrap().len(), 1);
+    let (_, export) = request(
+        &app,
+        "GET",
+        "/api/users/me/data-export",
+        Some(&token),
+        None,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(export["tastings"][0]["notes"], "updated note");
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -476,20 +466,17 @@ async fn source_ids_override_renames_but_do_not_merge_distinct_products(pool: Pg
     let mut conflict = fixture();
     conflict[0]["checkin_id"] = json!(1003);
     conflict[0]["brewery_id"] = json!(3002);
-    assert_eq!(
-        request(
-            &app,
-            "POST",
-            "/api/imports/untappd/preview",
-            Some(&a),
-            None,
-            conflict
-        )
-        .await
-        .0,
-        StatusCode::CONFLICT
-    );
+    let mut valid = fixture()[0].clone();
+    valid["checkin_id"] = json!(1004);
+    valid["bid"] = json!(2003);
+    conflict.as_array_mut().unwrap().push(valid);
+    let p = preview(&app, &a, &conflict).await;
+    assert_eq!(p["report"]["imported"], 1);
+    assert_eq!(p["report"]["skipped_checkins"].as_array().unwrap().len(), 1);
     assert_eq!(counts(&pool).await, (1, 2, 1, 3));
+    import(&app, &a, &conflict).await;
+    // The failed row's new brewery was rolled back, while the valid row survived.
+    assert_eq!(counts(&pool).await, (1, 3, 1, 4));
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -565,6 +552,143 @@ async fn migration_merges_catalog_repoints_history_and_removes_legacy_homes(pool
     assert_eq!(counts(&pool).await, (1, 1, 1, 0));
 }
 
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires dedicated PostgreSQL test server"]
+async fn unique_beer_metadata_differences_reuse_without_overwriting_catalog(pool: PgPool) {
+    let _guard = TEST_LOCK.lock().await;
+    let app = app(pool.clone());
+    let (_, a) = user(&pool, "alice").await;
+    let (_, b) = user(&pool, "bravo").await;
+    let brewery: Uuid =
+        sqlx::query_scalar("INSERT INTO breweries(name) VALUES('Test Brewery') RETURNING id")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let beer:Uuid=sqlx::query_scalar("INSERT INTO beers(brewery_id,name,style,abv) VALUES($1,'Test IPA','Old style description',6.2) RETURNING id").bind(brewery).fetch_one(&pool).await.unwrap();
+    let data = fixture();
+    let p = preview(&app, &a, &data).await;
+    assert_eq!(p["report"]["imported"], 1);
+    assert_eq!(p["report"]["beers"]["reused"], 1);
+    assert_eq!(p["report"]["notices"].as_array().unwrap().len(), 1);
+    assert!(
+        p["report"]["notices"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("ABV")
+    );
+    assert_eq!(counts(&pool).await, (1, 1, 0, 0));
+    for token in [&a, &b] {
+        import(&app, token, &data).await;
+    }
+    assert_eq!(counts(&pool).await, (1, 1, 1, 2));
+    let catalog: (String, f64, i64) =
+        sqlx::query_as("SELECT style,abv,untappd_id FROM beers WHERE id=$1")
+            .bind(beer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(catalog, ("Old style description".into(), 6.2, 2001));
+    let (_, export) = request(
+        &app,
+        "GET",
+        "/api/users/me/data-export",
+        Some(&a),
+        None,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(export["tastings"][0]["beer_id"], beer.to_string());
+    assert_eq!(export["tastings"][0]["untappd_source"]["beer_style"], "IPA");
+    assert_eq!(export["tastings"][0]["untappd_source"]["beer_abv"], 6.5);
+    let again = import(&app, &a, &data).await;
+    assert_eq!(again["report"]["imported"], 0);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires dedicated PostgreSQL test server"]
+async fn ambiguous_venue_omits_context_and_preserves_original_without_blocking_tasting(
+    pool: PgPool,
+) {
+    let _guard = TEST_LOCK.lock().await;
+    let app = app(pool.clone());
+    let (_, token) = user(&pool, "alice").await;
+    sqlx::query("INSERT INTO locations(name,location_type) VALUES('Test Venue','bar'),('Test Venue','restaurant')").execute(&pool).await.unwrap();
+    let r = import(&app, &token, &fixture()).await;
+    assert_eq!(r["report"]["imported"], 1);
+    assert_eq!(r["report"]["omitted_venues"].as_array().unwrap().len(), 1);
+    assert_eq!(counts(&pool).await, (1, 1, 2, 1));
+    let (_, export) = request(
+        &app,
+        "GET",
+        "/api/users/me/data-export",
+        Some(&token),
+        None,
+        Value::Null,
+    )
+    .await;
+    assert!(export["tastings"][0]["location_id"].is_null());
+    assert_eq!(
+        export["tastings"][0]["untappd_source"]["venue_name"],
+        "Test Venue"
+    );
+    assert_eq!(
+        export["tastings"][0]["untappd_source"]["venue_city"],
+        "Bergen"
+    );
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires dedicated PostgreSQL test server"]
+async fn ambiguous_beer_skips_only_affected_checkins_and_binds_preview_to_exclusions(pool: PgPool) {
+    let _guard = TEST_LOCK.lock().await;
+    let app = app(pool.clone());
+    let (_, token) = user(&pool, "alice").await;
+    let brewery: Uuid =
+        sqlx::query_scalar("INSERT INTO breweries(name) VALUES('Test Brewery') RETURNING id")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO beers(brewery_id,name) VALUES($1,'Test IPA'),($1,'Test IPA')")
+        .bind(brewery)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut data = fixture();
+    let mut valid = data[0].clone();
+    valid["checkin_id"] = json!(1002);
+    valid["bid"] = json!(2002);
+    valid["beer_name"] = json!("Other beer");
+    data.as_array_mut().unwrap().push(valid);
+    let p = preview(&app, &token, &data).await;
+    assert_eq!(p["report"]["imported"], 1);
+    assert_eq!(p["report"]["skipped_checkins"].as_array().unwrap().len(), 1);
+    assert_eq!(p["report"]["skipped_checkins"][0]["name"], "Test IPA");
+    assert_eq!(counts(&pool).await, (1, 2, 0, 0));
+    // A catalog correction changes what would be imported and requires a new preview.
+    sqlx::query("DELETE FROM beers WHERE id IN (SELECT id FROM beers WHERE brewery_id=$1 LIMIT 1)")
+        .bind(brewery)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            "/api/imports/untappd",
+            Some(&token),
+            p["preview_token"].as_str(),
+            data.clone()
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(counts(&pool).await, (1, 1, 0, 0));
+    let r = import(&app, &token, &data).await;
+    assert_eq!(r["report"]["imported"], 2);
+    assert_eq!(counts(&pool).await, (1, 2, 1, 2));
+}
+
 // Opt-in local rehearsal; CI uses only synthetic fixtures above.
 #[cfg(feature = "external-untappd-fixture-tests")]
 #[sqlx::test(migrations = "../../migrations")]
@@ -577,10 +701,45 @@ async fn personal_export_three_users(pool: PgPool) {
     let (_, a) = user(&pool, "alice").await;
     let (_, b) = user(&pool, "bravo").await;
     let (_, c) = user(&pool, "charlie").await;
+    let seeded = if let Ok(catalog_path) = std::env::var("UNTAPPD_CATALOG_FIXTURE_PATH") {
+        let catalog: Value = serde_json::from_slice(&std::fs::read(catalog_path).unwrap()).unwrap();
+        for b in catalog["breweries"].as_array().unwrap() {
+            sqlx::query(
+                "INSERT INTO breweries(id,name,country,city,website) VALUES($1,$2,$3,$4,$5)",
+            )
+            .bind(Uuid::parse_str(b["id"].as_str().unwrap()).unwrap())
+            .bind(b["name"].as_str().unwrap())
+            .bind(b["country"].as_str())
+            .bind(b["city"].as_str())
+            .bind(b["website"].as_str())
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        for b in catalog["beers"].as_array().unwrap() {
+            sqlx::query("INSERT INTO beers(id,brewery_id,name,style,abv,description,untappd_id) VALUES($1,$2,$3,$4,$5,$6,$7)")
+                .bind(Uuid::parse_str(b["id"].as_str().unwrap()).unwrap()).bind(Uuid::parse_str(b["brewery_id"].as_str().unwrap()).unwrap())
+                .bind(b["name"].as_str().unwrap()).bind(b["style"].as_str()).bind(b["abv"].as_f64()).bind(b["description"].as_str())
+                .bind(b["untappd_id"].as_i64()).execute(&pool).await.unwrap();
+        }
+        true
+    } else {
+        false
+    };
+    let initial = counts(&pool).await;
     let r = import(&app, &a, &data).await;
     assert_eq!(r["report"]["rows"], 4240);
     assert_eq!(r["report"]["imported"], 4234);
+    assert_eq!(r["report"]["skipped_checkins"], json!([]));
+    if seeded {
+        assert_eq!(r["report"]["beers"]["reused"], 1);
+        assert!(!r["report"]["notices"].as_array().unwrap().is_empty());
+    }
     let first = counts(&pool).await;
+    assert_eq!(
+        first.1,
+        2808 + initial.1 - r["report"]["beers"]["reused"].as_i64().unwrap()
+    );
     for token in [&b, &c] {
         import(&app, token, &data).await;
     }

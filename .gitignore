@@ -27,3 +27,6 @@ helm/*/*.tgz
 
 # Personal exports used only for local import verification
 /untappd-*.json
+
+# Local chat attachments
+.codex-attachments/

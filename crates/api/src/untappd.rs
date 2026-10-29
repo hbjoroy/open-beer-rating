@@ -9,7 +9,7 @@ use hmac::{Hmac, Mac};
 use open_tappd_domain::{crypto, models::tasting::ServingStyle};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{Postgres, Transaction};
+use sqlx::{Acquire, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{auth::jwt::AuthUser, errors::ApiError, state::AppState};
@@ -56,6 +56,13 @@ pub struct CatalogCount {
     pub reused: usize,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ImportIssue {
+    pub checkin_id: Option<i64>,
+    pub name: String,
+    pub message: String,
+}
+
 #[derive(Default, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ImportReport {
     pub rows: usize,
@@ -65,6 +72,9 @@ pub struct ImportReport {
     pub unrated_checkins: Vec<i64>,
     pub rounded_scores: usize,
     pub photo_links: usize,
+    pub notices: Vec<ImportIssue>,
+    pub skipped_checkins: Vec<ImportIssue>,
+    pub omitted_venues: Vec<ImportIssue>,
     pub breweries: CatalogCount,
     pub beers: CatalogCount,
     pub locations: CatalogCount,
@@ -281,18 +291,26 @@ async fn run(
             .await?
             .into_iter()
             .collect();
-    let mut seen = HashMap::new();
-    let mut breweries = HashMap::new();
-    let mut beers = HashMap::new();
-    let mut places = HashMap::new();
+    // A repeated export entry represents one event. Use its last copy rather
+    // than asking users to edit a third-party export by hand.
+    let mut last = HashMap::new();
+    let mut conflicting_duplicates = HashSet::new();
+    for (index, row) in rows.iter().enumerate() {
+        if let Some(previous) = last.insert(row.checkin_id, index) {
+            if rows[previous] != *row {
+                conflicting_duplicates.insert(row.checkin_id);
+            }
+        }
+    }
+    report.duplicate_rows = rows.len() - last.len();
+    let mut cache = CatalogCache::default();
     let mut plan = Sha256::new();
     for (index, row) in rows.iter().enumerate() {
-        if let Some(previous) = seen.insert(row.checkin_id, row) {
-            if previous != row {
-                return Err(invalid(index, "conflicting duplicate check-in"));
-            }
-            report.duplicate_rows += 1;
+        if last[&row.checkin_id] != index {
             continue;
+        }
+        if conflicting_duplicates.contains(&row.checkin_id) {
+            report.notices.push(issue(row, "This check-in occurs more than once with different details. Only the last copy in this file is used."));
         }
         if existing.contains(&row.checkin_id) {
             report.already_imported += 1;
@@ -302,60 +320,55 @@ async fn run(
             report.unrated_checkins.push(row.checkin_id);
             continue;
         };
-        let brewery = if let Some(id) = breweries.get(&row.brewery_id) {
-            *id
-        } else {
-            let (id, created) = resolve_brewery(&mut tx, row).await?;
-            count(&mut report.breweries, created);
-            decision(&mut plan, b"brewery", row.brewery_id, id, created);
-            breweries.insert(row.brewery_id, id);
-            id
-        };
-        let beer = if let Some((id, owner)) = beers.get(&row.bid) {
-            if *owner != brewery {
-                return Err(invalid(index, "beer/brewery identity"));
+        // Each check-in has a savepoint. An unresolved catalog match cannot leave
+        // behind an unused brewery or prevent unrelated check-ins from importing.
+        let mut row_tx = tx.begin().await?;
+        match save_row(&mut row_tx, state, auth.user_id, row, &cache).await {
+            Ok(changes) => {
+                row_tx.commit().await?;
+                for d in changes.decisions {
+                    match d.kind {
+                        "brewery" => {
+                            cache.breweries.insert(d.source, d.id);
+                            count(&mut report.breweries, d.created);
+                        }
+                        "beer" => {
+                            cache
+                                .beers
+                                .insert(d.source, (d.id, d.parent.expect("beer brewery")));
+                            count(&mut report.beers, d.created);
+                        }
+                        "location" => {
+                            cache.places.insert(d.source, d.id);
+                            count(&mut report.locations, d.created);
+                        }
+                        _ => unreachable!("known catalog kind"),
+                    }
+                    decision(&mut plan, d.kind.as_bytes(), d.source, d.id, d.created);
+                    if let Some(message) = d.notice {
+                        report.notices.push(ImportIssue {
+                            checkin_id: None,
+                            name: d.name,
+                            message,
+                        });
+                    }
+                }
+                if let Some(omission) = changes.omitted_venue {
+                    report.omitted_venues.push(omission);
+                }
+                report.imported += 1;
+                if (score * 2.0 - (score * 2.0).round()).abs() > 0.000001 {
+                    report.rounded_scores += 1;
+                }
+                if clean(&row.photo_url).is_some() {
+                    report.photo_links += 1;
+                }
             }
-            *id
-        } else {
-            let (id, created) = resolve_beer(&mut tx, row, brewery).await?;
-            count(&mut report.beers, created);
-            decision(&mut plan, b"beer", row.bid, id, created);
-            beers.insert(row.bid, (id, brewery));
-            id
-        };
-        let location = if let Some(source) = row.venue_id.filter(|id| *id > 0) {
-            if let Some(id) = places.get(&source) {
-                Some(*id)
-            } else {
-                let (id, created) = resolve_location(&mut tx, row, auth.user_id).await?;
-                count(&mut report.locations, created);
-                decision(&mut plan, b"location", source, id, created);
-                places.insert(source, id);
-                Some(id)
+            Err(ApiError::Conflict(message)) => {
+                row_tx.rollback().await?;
+                report.skipped_checkins.push(issue(row, &message));
             }
-        } else {
-            None
-        };
-        let notes = clean(&row.comment)
-            .map(|s| crypto::encrypt_field(s, &state.encryption_key))
-            .transpose()?;
-        let tasting: Uuid = sqlx::query_scalar("INSERT INTO tastings(user_id,beer_id,score,serving_style,notes_encrypted,location_id,tasted_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id")
-            .bind(auth.user_id).bind(beer).bind((score * 2.0).round() as i32)
-            .bind(serving(clean(&row.serving_type))).bind(notes).bind(location).bind(row.created_at)
-            .fetch_one(&mut *tx).await?;
-        let source = serde_json::json!({"checkin_id":row.checkin_id, "beer_id":row.bid,
-            "brewery_id":row.brewery_id,"venue_id":row.venue_id,"rating_score":score,
-            "photo_url":row.photo_url,"beer_ibu":row.beer_ibu,"purchase_venue":row.purchase_venue,
-            "flavor_profiles":row.flavor_profiles,"serving_type":row.serving_type});
-        let encrypted = crypto::encrypt_field(&source.to_string(), &state.encryption_key)?;
-        sqlx::query("INSERT INTO untappd_checkins(user_id,checkin_id,tasting_id,source_encrypted) VALUES($1,$2,$3,$4)")
-            .bind(auth.user_id).bind(row.checkin_id).bind(tasting).bind(encrypted).execute(&mut *tx).await?;
-        report.imported += 1;
-        if (score * 2.0 - (score * 2.0).round()).abs() > 0.000001 {
-            report.rounded_scores += 1;
-        }
-        if clean(&row.photo_url).is_some() {
-            report.photo_links += 1;
+            Err(error) => return Err(error),
         }
     }
     plan.update(serde_json::to_vec(&report).expect("serializable report"));
@@ -394,6 +407,120 @@ async fn run(
     })
 }
 
+#[derive(Default)]
+struct CatalogCache {
+    breweries: HashMap<i64, Uuid>,
+    beers: HashMap<i64, (Uuid, Uuid)>,
+    places: HashMap<i64, Uuid>,
+}
+struct CatalogDecision {
+    kind: &'static str,
+    source: i64,
+    id: Uuid,
+    created: bool,
+    parent: Option<Uuid>,
+    name: String,
+    notice: Option<String>,
+}
+#[derive(Default)]
+struct RowChanges {
+    decisions: Vec<CatalogDecision>,
+    omitted_venue: Option<ImportIssue>,
+}
+fn issue(row: &Checkin, message: &str) -> ImportIssue {
+    ImportIssue {
+        checkin_id: Some(row.checkin_id),
+        name: row.beer_name.clone(),
+        message: message.into(),
+    }
+}
+async fn save_row(
+    tx: &mut Tx<'_>,
+    state: &AppState,
+    user: Uuid,
+    row: &Checkin,
+    cache: &CatalogCache,
+) -> Result<RowChanges, ApiError> {
+    let mut changes = RowChanges::default();
+    let brewery = if let Some(id) = cache.breweries.get(&row.brewery_id) {
+        *id
+    } else {
+        let (id, created) = resolve_brewery(tx, row).await?;
+        changes.decisions.push(CatalogDecision {
+            kind: "brewery",
+            source: row.brewery_id,
+            id,
+            created,
+            parent: None,
+            name: row.brewery_name.clone(),
+            notice: None,
+        });
+        id
+    };
+    let beer = if let Some((id, owner)) = cache.beers.get(&row.bid) {
+        if *owner != brewery {
+            return Err(ApiError::Conflict("This check-in links the same beer to a different brewery. It was skipped to avoid an incorrect link; the other check-ins can still be imported.".into()));
+        }
+        *id
+    } else {
+        let (id, created, notice) = resolve_beer(tx, row, brewery).await?;
+        changes.decisions.push(CatalogDecision {
+            kind: "beer",
+            source: row.bid,
+            id,
+            created,
+            parent: Some(brewery),
+            name: row.beer_name.clone(),
+            notice,
+        });
+        id
+    };
+    let location = if let Some(source) = row.venue_id.filter(|id| *id > 0) {
+        if let Some(id) = cache.places.get(&source) {
+            Some(*id)
+        } else {
+            match resolve_location(tx, row, user).await {
+                Ok((id, created)) => {
+                    changes.decisions.push(CatalogDecision {
+                        kind: "location",
+                        source,
+                        id,
+                        created,
+                        parent: None,
+                        name: clean(&row.venue_name).unwrap_or("").into(),
+                        notice: None,
+                    });
+                    Some(id)
+                }
+                Err(ApiError::Conflict(_)) => {
+                    changes.omitted_venue = Some(ImportIssue { checkin_id: Some(row.checkin_id), name: clean(&row.venue_name).unwrap_or("").into(), message: "Several venues match. The tasting is imported without a venue; the original venue details are preserved in your data export.".into() });
+                    None
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    } else {
+        None
+    };
+    let notes = clean(&row.comment)
+        .map(|s| crypto::encrypt_field(s, &state.encryption_key))
+        .transpose()?;
+    let tasting: Uuid = sqlx::query_scalar("INSERT INTO tastings(user_id,beer_id,score,serving_style,notes_encrypted,location_id,tasted_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id")
+        .bind(user).bind(beer).bind((row.rating_score.expect("rated check-in") * 2.0).round() as i32)
+        .bind(serving(clean(&row.serving_type))).bind(notes).bind(location).bind(row.created_at).fetch_one(&mut **tx).await?;
+    let source = serde_json::json!({"checkin_id":row.checkin_id,"beer_id":row.bid,"brewery_id":row.brewery_id,
+        "venue_id":row.venue_id,"rating_score":row.rating_score,"photo_url":row.photo_url,"beer_ibu":row.beer_ibu,
+        "purchase_venue":row.purchase_venue,"flavor_profiles":row.flavor_profiles,"serving_type":row.serving_type,
+        "beer_name":row.beer_name,"beer_style":row.beer_type,"beer_abv":row.beer_abv,
+        "brewery_name":row.brewery_name,"brewery_country":row.brewery_country,"brewery_city":row.brewery_city,
+        "venue_name":row.venue_name,"venue_city":row.venue_city,"venue_country":row.venue_country,
+        "venue_state":row.venue_state,"venue_lat":row.venue_lat,"venue_lng":row.venue_lng});
+    let encrypted = crypto::encrypt_field(&source.to_string(), &state.encryption_key)?;
+    sqlx::query("INSERT INTO untappd_checkins(user_id,checkin_id,tasting_id,source_encrypted) VALUES($1,$2,$3,$4)")
+        .bind(user).bind(row.checkin_id).bind(tasting).bind(encrypted).execute(&mut **tx).await?;
+    Ok(changes)
+}
+
 fn count(count: &mut CatalogCount, created: bool) {
     if created {
         count.created += 1;
@@ -410,10 +537,10 @@ fn decision(plan: &mut Sha256, kind: &[u8], source: i64, id: Uuid, created: bool
     }
 }
 
-fn unique(ids: Vec<Uuid>, kind: &str, source: i64) -> Result<Option<Uuid>, ApiError> {
+fn unique(ids: Vec<Uuid>, kind: &str, _source: i64) -> Result<Option<Uuid>, ApiError> {
     if ids.len() > 1 {
         return Err(ApiError::Conflict(format!(
-            "Untappd {kind} {source} matches several catalog entries. Resolve the catalog duplicates before importing. Nothing was imported."
+            "Several existing {kind} entries match. This check-in was skipped to avoid linking it to the wrong drink. Your other check-ins can still be imported."
         )));
     }
     Ok(ids.first().copied())
@@ -453,51 +580,62 @@ async fn resolve_beer(
     tx: &mut Tx<'_>,
     r: &Checkin,
     brewery: Uuid,
-) -> Result<(Uuid, bool), ApiError> {
-    if let Some((id, owner)) =
-        sqlx::query_as::<_, (Uuid, Uuid)>("SELECT id,brewery_id FROM beers WHERE untappd_id=$1")
-            .bind(r.bid)
-            .fetch_optional(&mut **tx)
-            .await?
+) -> Result<(Uuid, bool, Option<String>), ApiError> {
+    if let Some((id, owner, name, style, abv)) =
+        sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, Option<f64>)>(
+            "SELECT id,brewery_id,name,style,abv FROM beers WHERE untappd_id=$1",
+        )
+        .bind(r.bid)
+        .fetch_optional(&mut **tx)
+        .await?
     {
         if owner != brewery {
-            return Err(ApiError::Conflict(format!(
-                "Untappd beer {} has a different brewery in the catalog. Nothing was imported.",
-                r.bid
-            )));
+            return Err(ApiError::Conflict("The existing Untappd beer link points to a different brewery. This check-in was skipped; your other check-ins can still be imported.".into()));
         }
-        return Ok((id, false));
+        return Ok((id, false, metadata_notice(&name, style.as_deref(), abv, r)));
     }
-    // Name + brewery is only a candidate. Conflicting style/ABV needs review,
-    // rather than silently merging a vintage or creating another copy.
-    let matches = sqlx::query_as::<_, (Uuid, Option<String>, Option<f64>)>("SELECT id,style,abv FROM beers WHERE untappd_id IS NULL AND brewery_id=$1 AND catalog_key(name)=catalog_key($2) LIMIT 2")
+    // A unique name within a brewery is enough to adopt an unlinked beer.
+    // Style descriptions and ABV drift are descriptive differences, not identity
+    // failures. Keep catalog values and preserve the source privately per tasting.
+    let matches = sqlx::query_as::<_, (Uuid, String, Option<String>, Option<f64>)>("SELECT id,name,style,abv FROM beers WHERE untappd_id IS NULL AND brewery_id=$1 AND catalog_key(name)=catalog_key($2) LIMIT 2")
         .bind(brewery).bind(r.beer_name.trim()).fetch_all(&mut **tx).await?;
-    let id = unique(matches.iter().map(|m| m.0).collect(), "beer", r.bid)?;
-    if let Some(id) = id {
-        let (_, style, abv) = &matches[0];
-        if style
-            .as_deref()
-            .zip(clean(&r.beer_type))
-            .is_some_and(|(a, b)| key(a) != key(b))
-            || abv
-                .zip(r.beer_abv)
-                .is_some_and(|(a, b)| (a - b).abs() > 0.05)
-        {
-            return Err(ApiError::Conflict(format!(
-                "Untappd beer {} matches a name but differs in style or ABV. Review the catalog entry before importing. Nothing was imported.",
-                r.bid
-            )));
-        }
+    if let Some(id) = unique(matches.iter().map(|m| m.0).collect(), "beer", r.bid)? {
+        let (_, name, style, abv) = &matches[0];
+        let notice = metadata_notice(name, style.as_deref(), *abv, r);
         sqlx::query("UPDATE beers SET untappd_id=$2 WHERE id=$1")
             .bind(id)
             .bind(r.bid)
             .execute(&mut **tx)
             .await?;
-        return Ok((id, false));
+        return Ok((id, false, notice));
     }
     let id = sqlx::query_scalar("INSERT INTO beers(brewery_id,name,style,abv,untappd_id) VALUES($1,$2,$3,$4,$5) RETURNING id")
         .bind(brewery).bind(r.beer_name.trim()).bind(clean(&r.beer_type)).bind(r.beer_abv).bind(r.bid).fetch_one(&mut **tx).await?;
-    Ok((id, true))
+    Ok((id, true, None))
+}
+fn metadata_notice(
+    name: &str,
+    style: Option<&str>,
+    abv: Option<f64>,
+    r: &Checkin,
+) -> Option<String> {
+    let mut differences = Vec::new();
+    if key(name) != key(&r.beer_name) {
+        differences.push("name");
+    }
+    if style
+        .zip(clean(&r.beer_type))
+        .is_some_and(|(a, b)| key(a) != key(b))
+    {
+        differences.push("style description");
+    }
+    if abv
+        .zip(r.beer_abv)
+        .is_some_and(|(a, b)| (a - b).abs() > 0.05)
+    {
+        differences.push("ABV");
+    }
+    (!differences.is_empty()).then(|| format!("Reused the existing beer despite a different {}. Existing catalog details are kept; the original Untappd details are preserved with your tasting.", differences.join(" and ")))
 }
 
 fn key(s: &str) -> String {

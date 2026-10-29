@@ -13,3 +13,6 @@ helm/
 
 # Personal migration exports
 untappd-*.json
+
+# Local chat attachments
+.codex-attachments/
