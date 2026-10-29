@@ -10,3 +10,6 @@ crates/web/dist/
 docs/
 scripts/
 helm/
+
+# Personal migration exports
+untappd-*.json

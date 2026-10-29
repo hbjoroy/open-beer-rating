@@ -10,3 +10,5 @@ pub mod register;
 pub mod sessions;
 pub mod identity;
 pub mod email_recovery;
+
+pub mod import_untappd;

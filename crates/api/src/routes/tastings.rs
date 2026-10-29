@@ -101,7 +101,7 @@ pub async fn create_tasting(
 
     // Verify location exists if provided
     if let Some(loc_id) = req.location_id {
-        super::locations::require_owned_location(&state.pool, loc_id, auth.user_id).await?;
+        super::locations::require_active_location(&state.pool, loc_id).await?;
     }
 
     // Verify session exists and user is participant if provided
@@ -239,7 +239,7 @@ pub async fn update_tasting(
     validation::validate_score(req.score)?;
 
     if let Some(loc_id) = req.location_id {
-        super::locations::require_owned_location(&state.pool, loc_id, auth.user_id).await?;
+        super::locations::require_active_location(&state.pool, loc_id).await?;
     }
 
     let notes_encrypted = if let Some(ref notes) = req.notes {

@@ -31,6 +31,10 @@ Existing beer rating apps are closed-source and centralized. Your drinking data 
 
 ## Features
 
+Shared catalog/import update (2026-10-29): signed-in users share venues, and
+Untappd JSON imports are available under My Profile with preview and source-ID
+deduplication. See [migration and import notes](docs/BACKEND_MIGRATION.md).
+
 Backend consolidation update (2026-10-28): tasting history is now the canonical
 rating source, public individual activity is disabled, and locations/session
 context have stricter access rules. Some account capabilities below remain
@@ -146,7 +150,7 @@ trunk serve
 | GET | `/api/tasting-sessions/{id}/tastings` | Yes | Session's tastings |
 | **Locations** | | | |
 | POST | `/api/locations` | Yes | Create a location |
-| GET | `/api/locations` | Yes | List my locations |
+| GET | `/api/locations` | Yes | Search shared locations |
 | GET | `/api/locations/{id}` | Yes | Get location details |
 | PUT | `/api/locations/{id}` | Yes | Update a location |
 | DELETE | `/api/locations/{id}` | Yes | Soft-delete a location |

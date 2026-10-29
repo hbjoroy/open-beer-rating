@@ -26,6 +26,8 @@ struct LocationItem {
     id: String,
     name: String,
     location_type: String,
+    #[serde(default)]
+    metadata: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -86,6 +88,9 @@ pub fn RateBeerPage(
     let photo_generation = RwSignal::new(0_u64);
 
     // Location state — restore last used
+    let location_search = RwSignal::new(String::new());
+    let location_request = RwSignal::new(0_u64);
+    let location_loading = RwSignal::new(false);
     let (locations, set_locations) = signal(Vec::<LocationItem>::new());
     let (selected_location, set_selected_location) = signal(Option::<String>::None);
 
@@ -200,17 +205,6 @@ pub fn RateBeerPage(
         if let Some(tok) = token.get() {
             let tok2 = tok.clone();
             leptos::task::spawn_local(async move {
-                match fetch_locations(&tok).await {
-                    Ok(locs) if token.get_untracked().as_deref() == Some(&tok) => {
-                        set_locations.set(locs)
-                    }
-                    Err(e) if token.get_untracked().as_deref() == Some(&tok) => {
-                        set_error.set(Some(e))
-                    }
-                    _ => {}
-                }
-            });
-            leptos::task::spawn_local(async move {
                 match fetch_active_sessions(&tok2).await {
                     Ok(sess) if token.get_untracked().as_deref() == Some(&tok2) => {
                         set_sessions.set(sess)
@@ -220,6 +214,35 @@ pub fn RateBeerPage(
                     }
                     _ => {}
                 }
+            });
+        }
+    });
+
+    Effect::new(move |_| {
+        let query = location_search.get();
+        let auth = token.get();
+        let selected = selected_location.get();
+        location_request.update(|v| *v += 1);
+        let generation = location_request.get_untracked();
+        location_loading.set(false);
+        if let Some(auth) = auth {
+            location_loading.set(true);
+            leptos::task::spawn_local(async move {
+                gloo_timers::future::TimeoutFuture::new(250).await;
+                if location_request.try_get_untracked() != Some(generation) {
+                    return;
+                }
+                let result = fetch_locations(&auth, &query, selected.as_deref()).await;
+                if location_request.try_get_untracked() != Some(generation)
+                    || token.try_get_untracked().flatten().as_deref() != Some(&auth)
+                {
+                    return;
+                }
+                match result {
+                    Ok(found) => set_locations.set(found),
+                    Err(e) => set_error.set(Some(e)),
+                }
+                location_loading.set(false);
             });
         }
     });
@@ -960,6 +983,10 @@ pub fn RateBeerPage(
 
                 // Location picker
                 <div class="form-group">
+                    <label for="location-search">"Find a shared venue"</label>
+                    <input id="location-search" type="search" placeholder="Search venues by name or city" prop:value=move || location_search.get() on:input=move |ev| location_search.set(event_target_value(&ev)) />
+                    <p class="muted">"Venues are shared by everyone. Search to narrow the first 100 results."</p>
+                    <Show when=move || location_loading.get()><p role="status">"Searching venues..."</p></Show>
                     <label for="tasting-location">"Location (optional)"</label>
                     <select id="tasting-location"
                         prop:value=move || selected_location.get().unwrap_or_default()
@@ -972,7 +999,12 @@ pub fn RateBeerPage(
                         {move || locations.get().iter().map(|loc| {
                             view! {
                                 <option value={loc.id.clone()}>
-                                    {format!("{} ({})", loc.name, loc.location_type)}
+                                    {{
+                                        let city = loc.metadata["city"].as_str().unwrap_or("");
+                                        let country = loc.metadata["country"].as_str().unwrap_or("");
+                                        let geography = [city, country].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(", ");
+                                        format!("{} ({})", loc.name, if geography.is_empty() { &loc.location_type } else { &geography })
+                                    }}
                                 </option>
                             }
                         }).collect::<Vec<_>>()}
@@ -1062,17 +1094,44 @@ async fn search_beers(query: &str) -> Result<Vec<BeerSearchResult>, String> {
     }
 }
 
-async fn fetch_locations(token: &str) -> Result<Vec<LocationItem>, String> {
-    let resp = gloo_net::http::Request::get("/api/locations?limit=100")
-        .header("Authorization", &format!("Bearer {token}"))
-        .send()
-        .await
-        .map_err(|e| format!("Network error: {e}"))?;
+async fn fetch_locations(
+    token: &str,
+    search: &str,
+    selected: Option<&str>,
+) -> Result<Vec<LocationItem>, String> {
+    let resp = gloo_net::http::Request::get(&format!(
+        "/api/locations?limit=100&search={}",
+        js_sys::encode_uri_component(search)
+            .as_string()
+            .unwrap_or_default()
+    ))
+    .header("Authorization", &format!("Bearer {token}"))
+    .send()
+    .await
+    .map_err(|e| format!("Network error: {e}"))?;
 
     if resp.ok() {
-        resp.json::<Vec<LocationItem>>()
+        let mut rows = resp
+            .json::<Vec<LocationItem>>()
             .await
-            .map_err(|e| format!("Parse error: {e}"))
+            .map_err(|e| format!("Parse error: {e}"))?;
+        if let Some(id) = selected.filter(|id| !rows.iter().any(|r| r.id == *id)) {
+            let selected = gloo_net::http::Request::get(&format!("/api/locations/{id}"))
+                .header("Authorization", &format!("Bearer {token}"))
+                .send()
+                .await
+                .map_err(|_| "Could not load the saved venue. Your draft is preserved.")?;
+            if selected.ok() {
+                rows.insert(
+                    0,
+                    selected
+                        .json::<LocationItem>()
+                        .await
+                        .map_err(|_| "Could not read the saved venue.")?,
+                );
+            }
+        }
+        Ok(rows)
     } else {
         Err("Could not load locations. Your draft is preserved; try again.".into())
     }
@@ -1392,7 +1451,7 @@ async fn fetch_beer(id: &str) -> Result<BeerSearchResult, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_base64url, tasting_draft_key, validate_photo_file, PhotoFormat, MAX_PHOTO_BYTES,
+        MAX_PHOTO_BYTES, PhotoFormat, decode_base64url, tasting_draft_key, validate_photo_file,
     };
 
     #[test]

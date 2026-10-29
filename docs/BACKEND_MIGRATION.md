@@ -1,3 +1,90 @@
+# Shared catalog and Untappd import - 2026-10-29
+
+This section supersedes the location-ownership rules in the older rollout below.
+Locations are now a shared catalog for all signed-in users. A contributor is an
+optional audit reference, not an access boundary. Tastings, encrypted notes,
+photos, and session membership retain their existing access rules. A session's
+shared location is visible to its authorized participants. Account deletion
+keeps catalog entries and removes the contributor reference.
+
+## Migration and rollback
+
+`20261029000002_shared_catalog_import.sql` is an explicit test-data transition:
+
+- Remove legacy home/online locations and clear their references before sharing
+  the remaining catalog. No tasting, score or note is deleted by this cleanup.
+- Merge exact normalized brewery/name/geography, beer/brewery/style/ABV, and
+  venue/name/city/country duplicates; repoint tasting/session foreign keys first.
+- Add unique Untappd IDs to breweries, beers and venues; add account-scoped
+  check-in provenance, cascading with the tasting/account.
+
+Before deploying: stop writers, take a fully readable and hash-verified database
+backup, rehearse the migration against a restored copy, then run the explicit
+migrator and deploy the matching API/web build. Check preserved tasting counts,
+merged references, and the import preview. Do not run the old binary against the
+new nullable location contributor field. Rollback requires the matching old
+binary and pre-migration database together; after new imports, prefer a forward
+fix to avoid losing the new history. No production migration is implicit in the
+API startup or in the UI build.
+
+## Import contract
+
+Use **My Profile -> Import from Untappd** (`/account/import`). Select the flat
+JSON array export, preview it, then confirm importing into the signed-in account.
+No user ID is accepted from the file or request. The raw file stays in browser
+memory and is not retained by the server or committed to Git.
+
+- `POST /api/imports/untappd/preview`: the raw JSON file, Bearer authorization.
+- `POST /api/imports/untappd`: same bytes, Bearer authorization, and the returned
+  receipt in `X-Import-Preview`. Receipts bind the file, account, matching decisions
+  and report for 30 minutes. Catalog changes require a new preview.
+- 16 MiB / 10,000-row bounds. Invalid rows and conflicting identities abort the
+  entire import. A preview performs the same transaction and rolls it back.
+- Source IDs win over names. Unlinked catalog rows can be adopted when their
+  normalized names and available geography match; beers must have the same
+  brewery and compatible style/ABV. Multiple candidates or contradictory beer
+  identity return 409 for catalog review. No fuzzy name merging is performed.
+  Distinct source beer IDs remain distinct products, even with identical names.
+- A database advisory lock serializes imports across API replicas. Catalog table
+  locks cover matching against ordinary catalog writes. Unique constraints back
+  the source identities and `(user_id, checkin_id)` idempotency.
+- Reimport skips existing check-ins and never overwrites subsequent manual edits.
+  Identical repeated rows count once; contradictory duplicates fail. Deleting a
+  tasting also deletes its provenance, so a later deliberate import can recreate it.
+- Dates preserve the instant in UTC. Scores are doubled and rounded half-up to the
+  integer 0-10 scale. Missing/null/empty scores are reported and skipped, not
+  fabricated as zero. A real numeric zero remains a zero.
+- Notes use existing field encryption. The original rating, source IDs, serving
+  description, IBU, flavor profiles, purchase venue and photo URL are encrypted
+  provenance included in the owner's data export. URLs are not fetched or rendered
+  as third-party images. No imported friends, toasts, comments, global scores or
+  Untappd badges are stored. Image download is a separate future feature.
+- Shared venues carry city/country/state/coordinates. They are searchable by name
+  or city; creation reuses a matching normalized name/city/country entry.
+
+## Verification
+
+The isolated PostgreSQL tests cover three-user catalog reuse, repeated import,
+concurrent import, all-or-nothing rollback, ambiguous names, external renames,
+distinct source products, score/date conversion, preview account/file/catalog
+binding, export/deletion and migration reference preservation. The full workspace
+suite and the actual Trunk/WASM build are also checked.
+
+Local opt-in rehearsal (the personal fixture is deliberately absent from CI):
+
+```powershell
+$env:DATABASE_URL = 'postgres://postgres:local-review-only@127.0.0.1:55432/opentappd_test'
+$env:UNTAPPD_FIXTURE_PATH = 'S:\Source\open-beer-rating\untappd-26-10-28.json'
+cargo test -p open-tappd-api --test untappd_import --features external-untappd-fixture-tests personal_export_three_users -- --ignored --nocapture
+```
+
+The supplied 4,240-row export imported 4,234 rated check-ins per account: 2,808
+beers, 798 breweries and 709 venues shared by three accounts (12,702 tastings).
+Six unrated check-ins were reported; a repeated import added zero. The full file
+also completed through the local browser's upload, preview and confirmation UI.
+
+---
+
 # Privacy and canonical tastings — 2026-10-28
 
 This increment changes the backend only. The public recent-activity endpoint

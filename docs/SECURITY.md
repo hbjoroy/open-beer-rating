@@ -1,5 +1,15 @@
 # Security Architecture — Open Tappd
 
+## Shared catalog update (2026-10-29)
+
+Venues now belong to a shared catalog for signed-in users, like beers and
+breweries. Venue names and metadata must not be treated as private. Account
+removal retains those catalog entries and clears the contributor reference.
+Individual tasting history, notes and photos retain their existing authorization.
+Untappd check-in provenance is encrypted, owner-exportable and deleted with the
+associated tasting. Imported URLs are stored only; the importer performs no
+outbound requests. See [the migration contract](BACKEND_MIGRATION.md).
+
 ## Threat Model
 
 Open Tappd handles **drinking behavior data** — sensitive personal information that reveals lifestyle habits. The security architecture treats every user's tasting history as confidential by default, with multiple defense layers.

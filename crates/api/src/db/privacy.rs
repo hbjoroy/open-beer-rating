@@ -90,6 +90,7 @@ pub struct ExportTastingRow {
     pub tasted_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub untappd_source_encrypted: Option<Vec<u8>>,
     pub photo_thumb_jpeg: Option<Vec<u8>>,
     pub photo_large_jpeg: Option<Vec<u8>>,
 }
@@ -100,7 +101,7 @@ pub struct ExportLocationRow {
     pub name: String,
     pub location_type: open_tappd_domain::models::location::LocationType,
     pub metadata: serde_json::Value,
-    pub created_by: Uuid,
+    pub created_by: Option<Uuid>,
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -159,8 +160,7 @@ pub async fn export_user_data(
         return Ok(None);
     };
     // No pagination or cap: repeated tastings are part of the user's history.
-    // Legacy records can reference another user's personal location: omit that
-    // location's ID and name, even when it appears on the exporting user's tasting.
+    // Locations are shared catalog data, including entries contributed by others.
     let tastings = sqlx::query_as::<_, ExportTastingRow>(
         r#"
         SELECT t.id, t.beer_id, b.name AS beer_name, br.name AS brewery_name,
@@ -168,13 +168,15 @@ pub async fn export_user_data(
                l.id AS location_id, l.name AS location_name,
                t.session_id, ts.name AS session_name,
                t.tasted_at, t.created_at, t.updated_at,
-               p.thumb_jpeg AS photo_thumb_jpeg, p.large_jpeg AS photo_large_jpeg
+               p.thumb_jpeg AS photo_thumb_jpeg, p.large_jpeg AS photo_large_jpeg,
+               uc.source_encrypted AS untappd_source_encrypted
         FROM tastings t
         JOIN beers b ON b.id = t.beer_id
         JOIN breweries br ON br.id = b.brewery_id
-        LEFT JOIN locations l ON l.id = t.location_id AND l.created_by = $1
+        LEFT JOIN locations l ON l.id = t.location_id
         LEFT JOIN tasting_sessions ts ON ts.id = t.session_id
         LEFT JOIN tasting_photos p ON p.tasting_id = t.id
+        LEFT JOIN untappd_checkins uc ON uc.tasting_id=t.id AND uc.user_id=$1
         WHERE t.user_id = $1
         ORDER BY t.tasted_at DESC, t.created_at DESC, t.id DESC
         "#,
@@ -183,7 +185,7 @@ pub async fn export_user_data(
     .fetch_all(&mut *tx)
     .await?;
     let locations = sqlx::query_as::<_, ExportLocationRow>(
-        "SELECT id, name, location_type, metadata, created_by, is_active, created_at, updated_at FROM locations WHERE created_by = $1 ORDER BY created_at, id",
+        "SELECT id, name, location_type, metadata, created_by, is_active, created_at, updated_at FROM locations WHERE created_by = $1 OR id IN (SELECT location_id FROM tastings WHERE user_id=$1 UNION SELECT location_id FROM tasting_sessions WHERE created_by=$1) ORDER BY created_at, id",
     )
     .bind(user_id)
     .fetch_all(&mut *tx)
@@ -194,7 +196,7 @@ pub async fn export_user_data(
                ts.join_code, ts.visibility, ts.started_at, ts.ended_at,
                ts.planned_start, ts.planned_end, ts.auto_end_minutes, ts.created_at, ts.updated_at
         FROM tasting_sessions ts
-        LEFT JOIN locations l ON l.id = ts.location_id AND l.created_by = $1
+        LEFT JOIN locations l ON l.id = ts.location_id
         WHERE ts.created_by = $1 ORDER BY ts.created_at, ts.id
         "#,
     )
@@ -244,35 +246,18 @@ pub async fn export_user_data(
 
 pub async fn delete_user_data(pool: &PgPool, user_id: Uuid) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
-    // Block new FK references to this account and its owned locations while cleaning up.
+    // Block new FK references to this account while cleaning up.
     sqlx::query("SELECT id FROM users WHERE id = $1 FOR UPDATE")
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("SELECT id FROM locations WHERE created_by = $1 ORDER BY id FOR UPDATE")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-    // Other people's tastings survive, but personal context owned by the deleted
-    // account is removed. Session deletion clears session_id through its FK.
-    sqlx::query("UPDATE tastings SET location_id = NULL WHERE location_id IN (SELECT id FROM locations WHERE created_by = $1)")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("UPDATE tasting_sessions SET location_id = NULL WHERE location_id IN (SELECT id FROM locations WHERE created_by = $1)")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
+    // Catalog locations survive; their contributor FK becomes NULL.
     sqlx::query("DELETE FROM tasting_sessions WHERE created_by = $1")
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("DELETE FROM locations WHERE created_by = $1")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
     // Own tastings, legacy ratings, badges, memberships, privacy and passkeys cascade.
-    // Shared beer and brewery catalog entries are retained.
+    // Shared beer, brewery and location catalog entries are retained.
     sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(user_id)
         .execute(&mut *tx)

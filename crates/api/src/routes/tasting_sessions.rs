@@ -70,7 +70,7 @@ pub async fn create_session(
     validation::validate_auto_end_minutes(auto_end)?;
 
     if let Some(loc_id) = req.location_id {
-        super::locations::require_owned_location(&state.pool, loc_id, auth.user_id).await?;
+        super::locations::require_active_location(&state.pool, loc_id).await?;
     }
 
     let visibility = req.visibility.unwrap_or(SessionVisibility::Participants);
@@ -302,17 +302,13 @@ async fn check_session_access(
 fn session_to_response(
     row: db::tasting_sessions::TastingSessionRow,
     participants: Option<Vec<ParticipantResponse>>,
-    viewer_id: Uuid,
+    _viewer_id: Uuid,
 ) -> SessionResponse {
     SessionResponse {
         id: row.id,
         name: row.name,
         description: row.description,
-        location_id: if row.created_by == viewer_id {
-            row.location_id
-        } else {
-            None
-        },
+        location_id: row.location_id,
         created_by: row.created_by,
         join_code: row.join_code,
         visibility: row.visibility,

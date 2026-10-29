@@ -90,7 +90,7 @@ async fn location(app: &Router, token: &str) -> String {
         "POST",
         "/api/locations",
         Some(token),
-        json!({"name":"Private home","location_type":"home","metadata":{}}),
+        json!({"name":"Shared venue","location_type":"bar","metadata":{}}),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{value}");
@@ -124,7 +124,7 @@ async fn tasting(
 
 #[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires dedicated PostgreSQL test server"]
-async fn feed_stays_empty_and_locations_are_owner_only(pool: PgPool) {
+async fn feed_stays_empty_and_locations_are_shared(pool: PgPool) {
     let app = app(pool.clone());
     let (owner, a, _) = user(&app, "owner").await;
     let (_, b, _) = user(&app, "outsider").await;
@@ -164,7 +164,7 @@ async fn feed_stays_empty_and_locations_are_owner_only(pool: PgPool) {
     }
     let (status, body) = request(&app, "GET", "/api/locations", Some(&b), Value::Null).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body, json!([]));
+    assert_eq!(body.as_array().unwrap().len(), 1);
     assert_eq!(
         request(
             &app,
@@ -175,7 +175,7 @@ async fn feed_stays_empty_and_locations_are_owner_only(pool: PgPool) {
         )
         .await
         .0,
-        StatusCode::NOT_FOUND
+        StatusCode::OK
     );
     assert_eq!(
         request(
@@ -203,7 +203,7 @@ async fn feed_stays_empty_and_locations_are_owner_only(pool: PgPool) {
     ] {
         assert_eq!(
             request(&app, method, &path, Some(&b), body).await.0,
-            StatusCode::NOT_FOUND
+            StatusCode::CREATED
         );
     }
     let own = tasting(&app, &b, beer, None, None, 5, "2026-10-02T12:00:00Z").await;
@@ -217,7 +217,7 @@ async fn feed_stays_empty_and_locations_are_owner_only(pool: PgPool) {
         )
         .await
         .0,
-        StatusCode::NOT_FOUND
+        StatusCode::OK
     );
 }
 
@@ -271,7 +271,7 @@ async fn session_membership_controls_all_visibility_levels_and_hides_private_con
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        assert!(joined["location_id"].is_null());
+        assert_eq!(joined["location_id"], loc);
         let (_, member_sessions) =
             request(&app, "GET", "/api/tasting-sessions", Some(&b), Value::Null).await;
         assert!(
@@ -279,7 +279,7 @@ async fn session_membership_controls_all_visibility_levels_and_hides_private_con
                 .as_array()
                 .unwrap()
                 .iter()
-                .all(|session| session["location_id"].is_null())
+                .all(|session| session["location_id"] == loc)
         );
         let (status, detail) = request(
             &app,
@@ -290,7 +290,7 @@ async fn session_membership_controls_all_visibility_levels_and_hides_private_con
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        assert!(detail["location_id"].is_null());
+        assert_eq!(detail["location_id"], loc);
         let (status, rows) = request(
             &app,
             "GET",
@@ -519,7 +519,7 @@ async fn export_includes_history_and_deletion_preserves_other_users_tastings(poo
     )
     .await;
     let other = tasting(&app, &b, beer, None, Some(sid), 6, "2026-10-02T12:00:00Z").await;
-    // Represent a historical cross-owner reference; deletion must detach it safely.
+    // Shared venue references survive the deletion of their contributor.
     sqlx::query("UPDATE tastings SET location_id=$1 WHERE id=$2")
         .bind(Uuid::parse_str(&loc).unwrap())
         .bind(Uuid::parse_str(other["id"].as_str().unwrap()).unwrap())
@@ -574,7 +574,7 @@ async fn export_includes_history_and_deletion_preserves_other_users_tastings(poo
     .await;
     assert_eq!(detail["score"], 6);
     assert_eq!(detail["notes"], "private tasting notes");
-    assert!(detail["location_id"].is_null());
+    assert_eq!(detail["location_id"], loc);
     assert!(detail["session_id"].is_null());
 }
 
@@ -785,15 +785,14 @@ async fn migration_collision_aborts_without_mutating_either_history(pool: PgPool
 
 #[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires dedicated PostgreSQL test server"]
-async fn historical_foreign_locations_are_masked_from_own_history_and_exports(pool: PgPool) {
+async fn shared_locations_are_visible_in_own_history_and_exports(pool: PgPool) {
     let app = app(pool.clone());
     let (uid, a, _) = user(&app, "owner").await;
     let (_, b, _) = user(&app, "location_owner").await;
     let loc = location(&app, &b).await;
     let loc_id = Uuid::parse_str(&loc).unwrap();
     let beer = beer(&pool).await;
-    // These references predate ownership validation and cannot be created by
-    // current HTTP endpoints. Reading old records must still protect locations.
+    // Catalog references can cross contributor boundaries in old and new history.
     let sid: Uuid = sqlx::query_scalar("INSERT INTO tasting_sessions(name,created_by,location_id,join_code) VALUES ('Historical session',$1,$2,'LEGACY') RETURNING id")
         .bind(uid).bind(loc_id).fetch_one(&pool).await.unwrap();
     sqlx::query("INSERT INTO session_participants(session_id,user_id) VALUES($1,$2)")
@@ -813,8 +812,8 @@ async fn historical_foreign_locations_are_masked_from_own_history_and_exports(po
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(detail["location_id"].is_null());
-    assert!(detail["location_name"].is_null());
+    assert_eq!(detail["location_id"], loc);
+
     for path in [
         "/api/tastings".into(),
         format!("/api/tasting-sessions/{sid}/tastings"),
@@ -822,8 +821,8 @@ async fn historical_foreign_locations_are_masked_from_own_history_and_exports(po
         let (status, rows) = request(&app, "GET", &path, Some(&a), Value::Null).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(rows.as_array().unwrap().len(), 1);
-        assert!(rows[0]["location_id"].is_null());
-        assert!(rows[0]["location_name"].is_null());
+        assert_eq!(rows[0]["location_id"], loc);
+        assert_eq!(rows[0]["location_name"], "Shared venue");
     }
     let (status, detail) = request(
         &app,
@@ -834,10 +833,10 @@ async fn historical_foreign_locations_are_masked_from_own_history_and_exports(po
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(detail["location_id"].is_null());
+    assert_eq!(detail["location_id"], loc);
     let (status, rows) = request(&app, "GET", "/api/tasting-sessions", Some(&a), Value::Null).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(rows[0]["location_id"].is_null());
+    assert_eq!(rows[0]["location_id"], loc);
     let (status, joined) = request(
         &app,
         "POST",
@@ -847,7 +846,7 @@ async fn historical_foreign_locations_are_masked_from_own_history_and_exports(po
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(joined["location_id"].is_null());
+    assert_eq!(joined["location_id"], loc);
     let (status, export) = request(
         &app,
         "GET",
@@ -858,10 +857,10 @@ async fn historical_foreign_locations_are_masked_from_own_history_and_exports(po
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(export["tastings"].as_array().unwrap().len(), 1);
-    assert!(export["tastings"][0]["location_id"].is_null());
-    assert!(export["tastings"][0]["location_name"].is_null());
-    assert!(export["created_sessions"][0]["location_id"].is_null());
-    assert_eq!(export["locations"], json!([]));
+    assert_eq!(export["tastings"][0]["location_id"], loc);
+    assert_eq!(export["tastings"][0]["location_name"], "Shared venue");
+    assert_eq!(export["created_sessions"][0]["location_id"], loc);
+    assert_eq!(export["locations"].as_array().unwrap().len(), 1);
 }
 
 #[sqlx::test(migrations = "../../migrations")]

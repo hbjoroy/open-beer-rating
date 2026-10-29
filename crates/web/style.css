@@ -1550,3 +1550,15 @@ button:disabled { cursor: wait; opacity: .65; }
 .tasting-card-actions:not([hidden]) { display: flex; flex-wrap: wrap; gap: .75rem; }
 .identity-panel { padding: 1.25rem; margin-block: 1.5rem; border: 1px solid var(--border-color, #444); border-radius: 1rem; overflow-wrap: anywhere; } .identity-panel p { margin-block: 0.75rem; }
 .email-recovery form { margin-block: 1.5rem; padding: 1rem; border: 1px solid var(--border-color, #444); border-radius: 0.75rem; } .email-recovery form input { margin-block: 0.5rem 1rem; } .email-recovery .recovery-key-value { overflow-wrap: anywhere; user-select: all; }
+
+.import-panel { margin-block: 1.5rem; padding: clamp(1rem, 3vw, 1.5rem); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); min-width: 0; }
+.import-panel p, .import-panel h2, .import-panel h3 { margin-block: .75rem; }
+.import-panel input[type="file"] { display: block; max-width: 100%; margin-block: .75rem; }
+.import-summary { width: 100%; border-collapse: collapse; margin-block: 1rem; }
+.import-summary caption { text-align: left; padding-block: .5rem; }
+.import-summary th, .import-summary td { text-align: left; padding: .7rem .4rem; border-bottom: 1px solid var(--border-strong); }
+.import-confirm { display: flex; align-items: flex-start; gap: .75rem; margin-block: 1.25rem; }
+.import-confirm input { flex: 0 0 auto; width: 1.2rem; height: 1.2rem; margin-top: .2rem; }
+.import-page p, .import-page details { overflow-wrap: anywhere; }
+.import-panel details { margin-block: 1rem; }
+.import-panel summary { cursor: pointer; padding-block: .5rem; }

@@ -22,7 +22,7 @@ pub struct Location {
     pub name: String,
     pub location_type: LocationType,
     pub metadata: serde_json::Value,
-    pub created_by: Uuid,
+    pub created_by: Option<Uuid>,
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

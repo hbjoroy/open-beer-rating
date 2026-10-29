@@ -40,6 +40,11 @@ pub fn ProfilePage(token: ReadSignal<Option<String>>) -> impl IntoView {
         <div class="page profile">
             <h2>"My Profile"</h2>
             <super::identity::IdentitySettings token=token />
+            <section class="import-panel">
+                <h3>"Bring your history"</h3>
+                <p>"Import an Untappd JSON export with a preview and automatic duplicate detection."</p>
+                <leptos_router::components::A href="/account/import" attr:class="btn-primary">"Import from Untappd"</leptos_router::components::A>
+            </section>
 
             <section>
                 <h3>"🏆 Badges"</h3>

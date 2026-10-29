@@ -79,9 +79,7 @@ pub async fn get_tasting(pool: &PgPool, id: Uuid) -> Result<Option<TastingRow>, 
     sqlx::query_as::<_, TastingRow>(
         r#"
         SELECT id, user_id, beer_id, score, serving_style, notes_encrypted,
-               CASE WHEN EXISTS (SELECT 1 FROM locations l WHERE l.id = tastings.location_id
-                                 AND l.created_by = tastings.user_id)
-                    THEN location_id END AS location_id, session_id,
+               location_id, session_id,
                tasted_at, created_at, updated_at,
                EXISTS (SELECT 1 FROM tasting_photos p WHERE p.tasting_id = tastings.id) AS has_photo
         FROM tastings WHERE id = $1
@@ -148,7 +146,7 @@ pub async fn get_user_tastings(
         FROM tastings t
         JOIN beers b ON b.id = t.beer_id
         JOIN breweries br ON br.id = b.brewery_id
-        LEFT JOIN locations l ON l.id = t.location_id AND l.created_by = t.user_id
+        LEFT JOIN locations l ON l.id = t.location_id
         LEFT JOIN tasting_sessions ts ON ts.id = t.session_id
         WHERE t.user_id = $1
           AND ($4::uuid IS NULL OR t.beer_id = $4)
@@ -214,7 +212,7 @@ pub async fn get_session_tastings(
         FROM tastings t
         JOIN beers b ON b.id = t.beer_id
         JOIN breweries br ON br.id = b.brewery_id
-        LEFT JOIN locations l ON l.id = t.location_id AND l.created_by = t.user_id
+        LEFT JOIN locations l ON l.id = t.location_id
         LEFT JOIN tasting_sessions ts ON ts.id = t.session_id
         WHERE t.session_id = $1
         ORDER BY t.tasted_at DESC, t.created_at DESC, t.id DESC

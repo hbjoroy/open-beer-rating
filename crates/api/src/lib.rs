@@ -1,3 +1,4 @@
+pub mod untappd;
 pub mod identity;
 pub mod email_recovery;
 pub mod auth;
@@ -22,6 +23,10 @@ pub fn create_router(state: state::AppState) -> Router {
         .route("/api/identity/complete", post(identity::complete))
         .route("/api/identity/cancel", post(identity::cancel))
         .route("/api/users/me/identity", get(identity::status))
+        .route("/api/imports/untappd/preview", post(untappd::preview)
+            .layer(axum::extract::DefaultBodyLimit::max(untappd::MAX_BYTES)))
+        .route("/api/imports/untappd", post(untappd::commit)
+            .layer(axum::extract::DefaultBodyLimit::max(untappd::MAX_BYTES)))
         // Users
         .route("/api/users/register", post(routes::users::register))
         .route("/api/users/register/abort", post(routes::users::abort_registration))

@@ -78,7 +78,7 @@ pub fn validate_location_metadata(
         }
         LocationType::Home => &["label"],
         LocationType::Online => &["platform", "url"],
-        LocationType::Other => &["description"],
+        LocationType::Other => &["description", "address", "city", "country", "state", "latitude", "longitude"],
     };
 
     for key in obj.keys() {

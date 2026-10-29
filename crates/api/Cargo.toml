@@ -7,6 +7,7 @@ license.workspace = true
 
 [features]
 external-heic-fixture-tests = []
+external-untappd-fixture-tests = []
 
 [dependencies]
 open-tappd-domain = { workspace = true, features = ["sqlx-support"] }

@@ -98,9 +98,7 @@ pub async fn get_session(
     sqlx::query_as::<_, TastingSessionRow>(
         r#"
         SELECT id, name, description,
-               CASE WHEN EXISTS (SELECT 1 FROM locations l WHERE l.id = tasting_sessions.location_id
-                                 AND l.created_by = tasting_sessions.created_by)
-                    THEN location_id END AS location_id, created_by, join_code, visibility,
+               location_id, created_by, join_code, visibility,
                started_at, ended_at, planned_start, planned_end, auto_end_minutes,
                created_at, updated_at
         FROM tasting_sessions WHERE id = $1
@@ -118,9 +116,7 @@ pub async fn get_session_by_code(
     sqlx::query_as::<_, TastingSessionRow>(
         r#"
         SELECT id, name, description,
-               CASE WHEN EXISTS (SELECT 1 FROM locations l WHERE l.id = tasting_sessions.location_id
-                                 AND l.created_by = tasting_sessions.created_by)
-                    THEN location_id END AS location_id, created_by, join_code, visibility,
+               location_id, created_by, join_code, visibility,
                started_at, ended_at, planned_start, planned_end, auto_end_minutes,
                created_at, updated_at
         FROM tasting_sessions WHERE join_code = $1
@@ -146,7 +142,7 @@ pub async fn list_sessions(
                ts.planned_start, ts.planned_end, ts.auto_end_minutes,
                ts.created_at, ts.updated_at
         FROM tasting_sessions ts
-        LEFT JOIN locations l ON l.id = ts.location_id AND l.created_by = ts.created_by
+        LEFT JOIN locations l ON l.id = ts.location_id
         LEFT JOIN session_participants sp ON sp.session_id = ts.id AND sp.user_id = $1
         WHERE (ts.created_by = $1 OR sp.user_id IS NOT NULL)
           AND ($2::bool = false OR ts.ended_at IS NULL)

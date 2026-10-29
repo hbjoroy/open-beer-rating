@@ -185,6 +185,7 @@ fn AppShell() -> impl IntoView {
                     } />
                     <Route path=path!("/identity/finish") view=move || view! { <pages::identity::IdentityFinish token=set_token /> } />
                     <Route path=path!("/email-recovery") view=move || view! { <pages::email_recovery::EmailRecoveryPage token=set_token /> } />
+                    <Route path=path!("/account/import") view=move || view! { <pages::import_untappd::ImportUntappdPage token=token /> } />
                     <Route path=path!("/account") view=move || view! { <pages::profile::ProfilePage token=token /> } />
                 </Routes>
             </main>

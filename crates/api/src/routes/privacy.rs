@@ -86,6 +86,7 @@ pub struct DataExportTasting {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub photo: Option<DataExportPhoto>,
+    pub untappd_source: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -192,6 +193,10 @@ pub async fn export_data(
             tasted_at: t.tasted_at,
             created_at: t.created_at,
             updated_at: t.updated_at,
+            untappd_source: t.untappd_source_encrypted.as_ref().and_then(|enc| {
+                crypto::decrypt_field(enc, &state.encryption_key).ok()
+                    .and_then(|json| serde_json::from_str(&json).ok())
+            }),
             photo: t.photo_thumb_jpeg.zip(t.photo_large_jpeg).map(|(thumb, large)| DataExportPhoto {
                 content_type: "image/jpeg",
                 thumb_base64: base64::engine::general_purpose::STANDARD.encode(thumb),
