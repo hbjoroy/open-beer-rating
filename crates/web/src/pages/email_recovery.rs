@@ -125,24 +125,30 @@ pub fn EmailRecoveryPage(token: WriteSignal<Option<String>>) -> impl IntoView {
             })}
             </Suspense>
             <form on:submit=request>
+                <div class="form-group">
                 <label for="email-recovery-username">"Username"</label>
                 <input id="email-recovery-username" autocomplete="username" required maxlength="30" prop:value=move ||username.get() on:input=move|ev|username.set(event_target_value(&ev)) />
+                </div>
+                <div class="form-group">
                 <label for="email-recovery-address">"Registered email"</label>
                 <input id="email-recovery-address" type="email" autocomplete="email" required maxlength="320" prop:value=move ||email.get() on:input=move|ev|email.set(event_target_value(&ev)) />
-                <button class="btn-primary" disabled=move ||busy.get() || !available.get().is_some_and(|v|v.as_ref().is_some_and(|d|d["enabled"].as_bool()==Some(true)))>"Send one-time code"</button>
+                </div>
+                <button type="submit" class="btn-primary" disabled=move ||busy.get() || !available.get().is_some_and(|v|v.as_ref().is_some_and(|d|d["enabled"].as_bool()==Some(true)))>"Send one-time code"</button>
             </form>
             <form on:submit=redeem>
                 <h3>"Already received a code?"</h3>
                 <p>"Enter your username above and paste the code from your email. It expires after 20 minutes. Using it replaces your recovery key and ends existing login sessions."</p>
+                <div class="form-group">
                 <label for="email-recovery-code">"One-time email code"</label>
                 <input id="email-recovery-code" autocomplete="one-time-code" required maxlength="100" prop:value=move ||code.get() on:input=move|ev|code.set(event_target_value(&ev)) />
-                <button class="btn-primary" disabled=move ||busy.get() || username.get().trim().is_empty()>"Get a new recovery key"</button>
+                </div>
+                <button type="submit" class="btn-primary" disabled=move ||busy.get() || username.get().trim().is_empty()>"Get a new recovery key"</button>
             </form>
         }>
             <div class="recovery-key-reveal">
                 <h3>"Save your new recovery key"</h3><p>"Your old key no longer works. This new key is shown only here; save it before continuing."</p>
                 <p class="recovery-key-value">{move ||key.get()}</p>
-                <label><input type="checkbox" prop:checked=move||saved.get() on:change=move|ev|saved.set(event_target_checked(&ev)) />" I have saved my new recovery key"</label>
+                <label class="checkbox-label"><input type="checkbox" prop:checked=move||saved.get() on:change=move|ev|saved.set(event_target_checked(&ev)) />" I have saved my new recovery key"</label>
                 <p>"Next, link your bjoroy.me identity from My Profile. It is the recommended way to keep access when temporary email recovery closes."</p>
                 <button class="btn-primary" on:click=login.clone() disabled=move ||busy.get() || !saved.get()>"Continue to My Profile"</button>
             </div>
