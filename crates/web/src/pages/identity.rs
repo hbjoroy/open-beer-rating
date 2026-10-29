@@ -107,7 +107,7 @@ pub fn IdentitySettings(token: ReadSignal<Option<String>>) -> impl IntoView {
     });
     view! { <section class="identity-panel" aria-label="bjoroy.me identity">
         <h3>"Your bjoroy.me identity"</h3>
-        <p>"Use the same identity service as Sprøyt. Linking prepares your account for future social features. Your tastings stay private, and your recovery key and passkeys still work."</p>
+        <p>"Use the same identity service as Sprøyt. We strongly recommend linking now, before temporary test-account email recovery closes. Linking also prepares your account for future social features. Your tastings stay private, and your recovery key and passkeys still work."</p>
         <Suspense fallback=|| view! {<p>"Loading identity…"</p>}>
         {move || identity.get().map(|result| match &*result {
             Ok(data) if data["identity"].is_object() => view! {<p class="success">{format!("Linked to {}",data["identity"]["display_name"].as_str().unwrap_or("bjoroy.me"))}</p>}.into_any(),

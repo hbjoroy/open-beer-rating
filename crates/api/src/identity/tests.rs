@@ -70,6 +70,7 @@ fn signed_identity_requires_exact_issuer_audience_nonce_expiry_and_key() {
 
 fn state(pool: sqlx::PgPool) -> AppState {
     AppState {
+        email_recovery: None,
         pool,
         encryption_key: [42; 32],
         jwt_secret: "test-only".into(),
@@ -103,6 +104,7 @@ async fn pending_flow(state: &AppState, user: Option<Uuid>, subject: &str) -> St
     let key = random();
     let payload = encode(
         &Payload {
+            auth_version: 0,
             nonce: String::new(),
             verifier: String::new(),
             subject: Some(subject.into()),
@@ -198,6 +200,16 @@ async fn explicit_link_login_replay_conflicts_and_cascade(pool: sqlx::PgPool) {
     assert_eq!(
         export.identity.unwrap().sproyt_user_id,
         sproyt_id("subject-a")
+    );
+    let key = pending_flow(&state, Some(alice), "subject-a").await;
+    sqlx::query("UPDATE users SET auth_version=auth_version+1 WHERE id=$1")
+        .bind(alice)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        confirm(&state, &key, "https://app.example").await.0,
+        StatusCode::UNAUTHORIZED
     );
     let key = pending_flow(&state, Some(alice), "subject-a").await;
     crate::db::privacy::delete_user_data(&state.pool, alice)

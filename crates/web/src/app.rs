@@ -90,7 +90,7 @@ fn AppShell() -> impl IntoView {
             do_passkey_login, extract_username_from_jwt, get_autologon, get_stored_username,
             set_autologon, store_username,
         };
-        if location.pathname.get_untracked() == "/identity/finish" || !get_autologon() || get_stored_username().is_none() {
+        if matches!(location.pathname.get_untracked().as_str(), "/identity/finish" | "/email-recovery") || !get_autologon() || get_stored_username().is_none() {
             return;
         }
         set_autologon(false);
@@ -184,6 +184,7 @@ fn AppShell() -> impl IntoView {
                         <pages::sessions::SessionBrowserPage token=token active_session=active_session set_active_session=set_active_session />
                     } />
                     <Route path=path!("/identity/finish") view=move || view! { <pages::identity::IdentityFinish token=set_token /> } />
+                    <Route path=path!("/email-recovery") view=move || view! { <pages::email_recovery::EmailRecoveryPage token=set_token /> } />
                     <Route path=path!("/account") view=move || view! { <pages::profile::ProfilePage token=token /> } />
                 </Routes>
             </main>

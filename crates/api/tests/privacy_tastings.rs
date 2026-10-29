@@ -14,6 +14,7 @@ use uuid::Uuid;
 fn app(pool: PgPool) -> Router {
     open_tappd_api::create_router(open_tappd_api::state::AppState {
         identity: None,
+        email_recovery: None,
         pool,
         encryption_key: [0x42; 32],
         jwt_secret: "regression-secret".into(),

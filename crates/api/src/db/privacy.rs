@@ -71,6 +71,7 @@ pub struct UserDataExport {
     pub passkeys: Vec<ExportPasskeyRow>,
     pub settings: PrivacySettingsRow,
     pub identity: Option<crate::identity::LinkedIdentity>,
+    pub email_recovery_requests: Vec<DateTime<Utc>>,
 }
 
 #[derive(Debug, FromRow)]
@@ -148,7 +149,7 @@ pub async fn export_user_data(
         .execute(&mut *tx)
         .await?;
     let user = sqlx::query_as::<_, super::users::UserRow>(
-        "SELECT id, username, email_encrypted, recovery_key_hash, display_name, created_at, updated_at FROM users WHERE id = $1",
+        "SELECT id, username, email_encrypted, recovery_key_hash, display_name, created_at, updated_at, auth_version, email_verified_at, email_verification_source, email_recovery_allowed_until FROM users WHERE id = $1",
     )
     .bind(user_id)
     .fetch_optional(&mut *tx)
@@ -225,8 +226,10 @@ pub async fn export_user_data(
     .fetch_one(&mut *tx)
     .await?;
     let identity = sqlx::query_as::<_,crate::identity::LinkedIdentity>("SELECT issuer,subject,display_name,sproyt_user_id,linked_at FROM external_identities WHERE user_id=$1").bind(user_id).fetch_optional(&mut *tx).await?;
+    let email_recovery_requests=sqlx::query_scalar("SELECT requested_at FROM email_recovery_requests WHERE user_id=$1 ORDER BY requested_at").bind(user_id).fetch_all(&mut *tx).await?;
     tx.commit().await?;
     Ok(Some(UserDataExport {
+        email_recovery_requests,
         identity,
         user,
         tastings,

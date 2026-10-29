@@ -29,6 +29,7 @@ pub struct UpdatePrivacyRequest {
 pub struct DataExportResponse {
     pub user: DataExportUser,
     pub identity: Option<crate::identity::LinkedIdentity>,
+    pub email_recovery_requests: Vec<chrono::DateTime<chrono::Utc>>,
     // Compatibility summary: the latest canonical tasting for each beer.
     pub ratings: Vec<DataExportRating>,
     pub tastings: Vec<DataExportTasting>,
@@ -54,6 +55,9 @@ pub struct DataExportUser {
     pub username: String,
     pub email: Option<String>,
     pub display_name: Option<String>,
+    pub email_verified_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub email_verification_source: Option<String>,
+    pub email_recovery_allowed_until: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -221,10 +225,14 @@ pub async fn export_data(
 
     Ok(Json(DataExportResponse {
         identity: export.identity,
+        email_recovery_requests: export.email_recovery_requests,
         user: DataExportUser {
             username: export.user.username,
             email,
             display_name: export.user.display_name,
+            email_verified_at: export.user.email_verified_at,
+            email_verification_source: export.user.email_verification_source,
+            email_recovery_allowed_until: export.user.email_recovery_allowed_until,
         },
         ratings,
         tastings,

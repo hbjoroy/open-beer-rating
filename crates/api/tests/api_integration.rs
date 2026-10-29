@@ -40,6 +40,7 @@ async fn test_app(pool: PgPool) -> axum::Router {
 
     let state = open_tappd_api::state::AppState {
         identity: None,
+        email_recovery: None,
         pool,
         encryption_key,
         jwt_secret,

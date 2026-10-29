@@ -83,6 +83,28 @@ spec:
               containerPort: {{ .Values.app.port }}
               protocol: TCP
           env:
+            {{- if .Values.emailRecovery.enabled }}
+            - name: EMAIL_RECOVERY_UNTIL
+              value: {{ required "emailRecovery.until is required" .Values.emailRecovery.until | quote }}
+            - name: EMAIL_RECOVERY_ORIGIN
+              value: {{ .Values.emailRecovery.origin | quote }}
+            - name: SMTP_HOST
+              value: {{ .Values.emailRecovery.smtpHost | quote }}
+            - name: SMTP_PORT
+              value: {{ .Values.emailRecovery.smtpPort | quote }}
+            - name: SMTP_FROM
+              value: {{ .Values.emailRecovery.from | quote }}
+            - name: SMTP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "emailRecovery.existingSecret is required" .Values.emailRecovery.existingSecret }}
+                  key: username
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.emailRecovery.existingSecret }}
+                  key: password
+            {{- end }}
             {{- if .Values.identity.enabled }}
             - name: OIDC_CLIENT_ID
               value: {{ required "identity.clientId is required" .Values.identity.clientId | quote }}

@@ -1,6 +1,6 @@
 //! Confidential OIDC client. Identity is the verified (issuer, subject), never a name/email.
 use crate::{
-    auth::jwt::{AuthUser, create_token},
+    auth::jwt::{AuthUser, create_versioned_token},
     errors::ApiError,
     state::AppState,
 };
@@ -143,6 +143,8 @@ fn private_response(body: impl IntoResponse, cookie_value: Option<&str>) -> Resp
 }
 #[derive(Serialize, Deserialize)]
 struct Payload {
+    #[serde(default)]
+    auth_version: i64,
     nonce: String,
     verifier: String,
     subject: Option<String>,
@@ -179,12 +181,12 @@ pub async fn link_start(
     headers: HeaderMap,
     Json(_): Json<serde_json::Value>,
 ) -> Result<Response, ApiError> {
-    start(&state, &headers, Some(auth.user_id)).await
+    start(&state, &headers, Some((auth.user_id, auth.auth_version))).await
 }
 async fn start(
     state: &AppState,
     headers: &HeaderMap,
-    user: Option<Uuid>,
+    user: Option<(Uuid, i64)>,
 ) -> Result<Response, ApiError> {
     let cfg = config(state)?;
     check_origin(headers, cfg)?;
@@ -208,6 +210,7 @@ async fn start(
     let browser = random();
     let payload = encode(
         &Payload {
+            auth_version: user.map(|u| u.1).unwrap_or(0),
             nonce: nonce.secret().clone(),
             verifier: verifier.secret().clone(),
             subject: None,
@@ -231,7 +234,7 @@ async fn start(
         return Err(unavailable());
     }
     sqlx::query("INSERT INTO identity_flows(state_hash,browser_hash,user_id,stage,payload,expires_at) VALUES($1,$2,$3,'authorize',$4,now()+interval '10 minutes')")
-        .bind(hash(csrf.secret())).bind(hash(&browser)).bind(user).bind(payload).execute(&mut *tx).await?;
+        .bind(hash(csrf.secret())).bind(hash(&browser)).bind(user.map(|u|u.0)).bind(payload).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(private_response(
         Json(serde_json::json!({"url":url.to_string()})),
@@ -307,6 +310,7 @@ async fn callback_inner(
     let result = random();
     let payload = encode(
         &Payload {
+            auth_version: p.auth_version,
             nonce: String::new(),
             verifier: String::new(),
             subject: Some(subject),
@@ -392,15 +396,25 @@ pub async fn complete(
     let p = decode(&flow.payload, &state)?;
     let subject = p.subject.ok_or_else(invalid)?;
     let user_id = if let Some(user) = flow.user_id {
+        let mut tx = state.pool.begin().await?;
+        let version: Option<i64> =
+            sqlx::query_scalar("SELECT auth_version FROM users WHERE id=$1 FOR UPDATE")
+                .bind(user)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if version != Some(p.auth_version) {
+            return Err(invalid());
+        }
         let inserted = sqlx::query("INSERT INTO external_identities(user_id,issuer,subject,display_name,sproyt_user_id) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING")
-            .bind(user).bind(ISSUER).bind(&subject).bind(p.display_name.unwrap_or_default()).bind(sproyt_id(&subject)).execute(&state.pool).await?;
+            .bind(user).bind(ISSUER).bind(&subject).bind(p.display_name.unwrap_or_default()).bind(sproyt_id(&subject)).execute(&mut *tx).await?;
         if inserted.rows_affected() == 0 {
             let same: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM external_identities WHERE user_id=$1 AND issuer=$2 AND subject=$3)")
-                .bind(user).bind(ISSUER).bind(&subject).fetch_one(&state.pool).await?;
+                .bind(user).bind(ISSUER).bind(&subject).fetch_one(&mut *tx).await?;
             if !same {
                 return Err(ApiError::Conflict("This account or bjoroy.me identity is already linked. No accounts were merged.".into()));
             }
         }
+        tx.commit().await?;
         user
     } else {
         sqlx::query_scalar("SELECT user_id FROM external_identities WHERE issuer=$1 AND subject=$2")
@@ -410,7 +424,12 @@ pub async fn complete(
     let user = crate::db::users::find_user_by_id(&state.pool, user_id)
         .await?
         .ok_or_else(invalid)?;
-    let token = create_token(user.id, &user.username, &state.jwt_secret)?;
+    let token = create_versioned_token(
+        user.id,
+        &user.username,
+        &state.jwt_secret,
+        user.auth_version,
+    )?;
     Ok(private_response(
         Json(serde_json::json!({"token":token})),
         Some(""),

@@ -11,6 +11,10 @@ pub struct UserRow {
     pub display_name: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub auth_version: i64,
+    pub email_verified_at: Option<DateTime<Utc>>,
+    pub email_verification_source: Option<String>,
+    pub email_recovery_allowed_until: Option<DateTime<Utc>>,
 }
 
 pub async fn create_user(
@@ -23,7 +27,7 @@ pub async fn create_user(
         r#"
         INSERT INTO users (username, email_encrypted, recovery_key_hash)
         VALUES ($1, $2, $3)
-        RETURNING id, username, email_encrypted, recovery_key_hash, display_name, created_at, updated_at
+        RETURNING id, username, email_encrypted, recovery_key_hash, display_name, created_at, updated_at, auth_version, email_verified_at, email_verification_source, email_recovery_allowed_until
         "#,
     )
     .bind(username)
@@ -47,7 +51,7 @@ pub async fn find_user_by_username(
 ) -> Result<Option<UserRow>, sqlx::Error> {
     sqlx::query_as::<_, UserRow>(
         r#"
-        SELECT id, username, email_encrypted, recovery_key_hash, display_name, created_at, updated_at
+        SELECT id, username, email_encrypted, recovery_key_hash, display_name, created_at, updated_at, auth_version, email_verified_at, email_verification_source, email_recovery_allowed_until
         FROM users
         WHERE LOWER(username) = LOWER($1)
         "#,
@@ -63,7 +67,7 @@ pub async fn find_user_by_id(
 ) -> Result<Option<UserRow>, sqlx::Error> {
     sqlx::query_as::<_, UserRow>(
         r#"
-        SELECT id, username, email_encrypted, recovery_key_hash, display_name, created_at, updated_at
+        SELECT id, username, email_encrypted, recovery_key_hash, display_name, created_at, updated_at, auth_version, email_verified_at, email_verification_source, email_recovery_allowed_until
         FROM users
         WHERE id = $1
         "#,

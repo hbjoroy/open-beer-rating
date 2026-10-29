@@ -16,17 +16,29 @@ pub struct Claims {
     pub username: String,
     pub exp: u64,
     pub iat: u64,
+    #[serde(default)]
+    pub auth_version: i64,
 }
 
 const JWT_HEADER: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"; // {"alg":"HS256","typ":"JWT"}
 
 pub fn create_token(user_id: Uuid, username: &str, secret: &str) -> Result<String, ApiError> {
+    create_versioned_token(user_id, username, secret, 0)
+}
+
+pub fn create_versioned_token(
+    user_id: Uuid,
+    username: &str,
+    secret: &str,
+    auth_version: i64,
+) -> Result<String, ApiError> {
     let now = chrono::Utc::now().timestamp() as u64;
     let claims = Claims {
         sub: user_id,
         username: username.to_string(),
         exp: now + 24 * 3600,
         iat: now,
+        auth_version,
     };
 
     let payload = serde_json::to_vec(&claims)
@@ -82,6 +94,7 @@ pub fn verify_token(token: &str, secret: &str) -> Result<Claims, ApiError> {
 pub struct AuthUser {
     pub user_id: Uuid,
     pub username: String,
+    pub auth_version: i64,
 }
 
 impl FromRequestParts<AppState> for AuthUser {
@@ -104,16 +117,19 @@ impl FromRequestParts<AppState> for AuthUser {
         let claims = verify_token(token, &state.jwt_secret)?;
 
         // Account deletion invalidates outstanding tokens immediately.
-        if crate::db::users::find_user_by_id(&state.pool, claims.sub)
+        let user = crate::db::users::find_user_by_id(&state.pool, claims.sub)
             .await?
-            .is_none()
-        {
-            return Err(ApiError::Unauthorized("Account no longer exists".into()));
+            .ok_or_else(|| ApiError::Unauthorized("Account no longer exists".into()))?;
+        if user.auth_version != claims.auth_version {
+            return Err(ApiError::Unauthorized(
+                "Session ended after account recovery. Please sign in again.".into(),
+            ));
         }
 
         Ok(AuthUser {
             user_id: claims.sub,
             username: claims.username,
+            auth_version: claims.auth_version,
         })
     }
 }

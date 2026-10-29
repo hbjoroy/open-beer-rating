@@ -1,4 +1,5 @@
 pub mod identity;
+pub mod email_recovery;
 pub mod auth;
 pub mod db;
 pub mod errors;
@@ -11,6 +12,9 @@ pub fn create_router(state: state::AppState) -> Router {
     let api = Router::new()
         .route("/health", get(routes::health::health_check))
         .route("/api/identity", get(identity::availability))
+        .route("/api/email-recovery", get(email_recovery::availability))
+        .route("/api/email-recovery/request", post(email_recovery::request_code))
+        .route("/api/email-recovery/redeem", post(email_recovery::redeem_code))
         .route("/api/identity/login", post(identity::login_start))
         .route("/api/identity/link", post(identity::link_start))
         .route("/api/identity/callback", get(identity::callback))

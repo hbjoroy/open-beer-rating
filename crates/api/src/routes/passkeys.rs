@@ -216,7 +216,7 @@ pub async fn auth_finish(
         .await?
         .ok_or_else(|| ApiError::Internal("User not found for passkey".into()))?;
 
-    let token = jwt::create_token(user.id, &user.username, &state.jwt_secret)?;
+    let token = jwt::create_versioned_token(user.id, &user.username, &state.jwt_secret,user.auth_version)?;
 
     Ok(Json(crate::routes::users::LoginResponse {
         token,

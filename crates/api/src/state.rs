@@ -6,6 +6,7 @@ use open_tappd_webauthn::WebAuthn;
 pub struct AppState {
     pub pool: PgPool,
     pub identity: Option<crate::identity::IdentityConfig>,
+    pub email_recovery: Option<crate::email_recovery::RecoveryConfig>,
     pub encryption_key: [u8; 32],
     pub jwt_secret: String,
     pub webauthn: Arc<WebAuthn>,

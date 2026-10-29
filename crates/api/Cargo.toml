@@ -33,6 +33,7 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 # Exact pin: upload preflight guards are reviewed against this decoder's internals.
 heic-rs = { version = "=0.1.4", default-features = false, features = ["std"] }
 openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

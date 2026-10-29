@@ -70,7 +70,7 @@ pub async fn register(
     )
     .await?;
 
-    let token = jwt::create_token(user.id, &user.username, &state.jwt_secret)?;
+    let token = jwt::create_versioned_token(user.id, &user.username, &state.jwt_secret,user.auth_version)?;
 
     Ok((
         axum::http::StatusCode::CREATED,
@@ -124,7 +124,7 @@ pub async fn login(
 
     verify_recovery_key(&req.recovery_key, &user.recovery_key_hash)?;
 
-    let token = jwt::create_token(user.id, &user.username, &state.jwt_secret)?;
+    let token = jwt::create_versioned_token(user.id, &user.username, &state.jwt_secret,user.auth_version)?;
 
     Ok(Json(LoginResponse {
         token,
@@ -138,7 +138,7 @@ pub async fn login(
 }
 
 /// Generate a 24-character recovery key in groups of 4: ABCD-EFGH-IJKL-MNOP-QRST-UVWX
-fn generate_recovery_key() -> String {
+pub(crate) fn generate_recovery_key() -> String {
     use argon2::password_hash::rand_core::{OsRng, RngCore};
 
     const CHARSET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no I, O, 0, 1 (avoid confusion)
@@ -155,7 +155,7 @@ fn generate_recovery_key() -> String {
     key
 }
 
-fn hash_recovery_key(key: &str) -> Result<String, ApiError> {
+pub(crate) fn hash_recovery_key(key: &str) -> Result<String, ApiError> {
     use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
     use argon2::password_hash::rand_core::OsRng;
 

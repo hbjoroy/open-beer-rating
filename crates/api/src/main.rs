@@ -48,12 +48,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = AppState {
         identity: open_tappd_api::identity::IdentityConfig::from_env()?,
+        email_recovery: open_tappd_api::email_recovery::RecoveryConfig::from_env()?,
         pool,
         encryption_key,
         jwt_secret,
         webauthn: Arc::new(webauthn),
     };
 
+    open_tappd_api::email_recovery::start_worker(state.clone());
     let app = open_tappd_api::create_router(state);
 
     let host = std::env::var("API_HOST").unwrap_or_else(|_| "0.0.0.0".into());

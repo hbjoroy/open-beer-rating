@@ -1549,3 +1549,4 @@ button:disabled { cursor: wait; opacity: .65; }
 .photo-preview-unavailable { padding: 1rem; border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); }
 .tasting-card-actions:not([hidden]) { display: flex; flex-wrap: wrap; gap: .75rem; }
 .identity-panel { padding: 1.25rem; margin-block: 1.5rem; border: 1px solid var(--border-color, #444); border-radius: 1rem; overflow-wrap: anywhere; } .identity-panel p { margin-block: 0.75rem; }
+.email-recovery form { margin-block: 1.5rem; padding: 1rem; border: 1px solid var(--border-color, #444); border-radius: 0.75rem; } .email-recovery form input { margin-block: 0.5rem 1rem; } .email-recovery .recovery-key-value { overflow-wrap: anywhere; user-select: all; }

@@ -126,6 +126,7 @@ pub fn LoginPage(
         <div class="page auth-page">
             <h2>"Sign In"</h2>
             <super::identity::IdentityButton />
+            <p><a href="/email-recovery">"Lost your recovery key? Recover a test account by email"</a></p>
 
             {move || error.get().map(|e| view! { <p class="error">{e}</p> })}
             {move || info.get().map(|i| view! { <p class="success">{i}</p> })}

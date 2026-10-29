@@ -170,3 +170,12 @@ identity:
   clientId: ""
   origin: https://open-drink.bjoroy.me
   existingSecret: ""
+
+emailRecovery:
+  enabled: false
+  until: ""
+  origin: https://open-drink.bjoroy.me
+  smtpHost: smtp-relay.brevo.com
+  smtpPort: 587
+  from: "Open Drinks <harald@bjoroy.me>"
+  existingSecret: ""
