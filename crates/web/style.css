@@ -1547,7 +1547,18 @@ button:disabled { cursor: wait; opacity: .65; }
 .tasting-photo-placeholder > span { font-size: 1.8rem; }
 .tasting-entry .tasting-photo-expanded { grid-column: 1 / -1; margin-top: 0; }
 .photo-preview-unavailable { padding: 1rem; border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); }
-.tasting-card-actions:not([hidden]) { display: flex; flex-wrap: wrap; gap: .75rem; }
+/* Native disclosure keeps secondary actions out of the tasting card's main flow. */
+.tasting-heading-actions { display: flex; align-items: center; justify-content: space-between; gap: .5rem; width: 100%; }
+.tasting-options { position: relative; flex-shrink: 0; }
+.tasting-options summary { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text-muted); cursor: pointer; list-style: none; }
+.tasting-options summary::-webkit-details-marker { display: none; }
+.tasting-options summary span { font-size: 1.5rem; line-height: 1; }
+.tasting-options summary:hover, .tasting-options[open] summary { color: var(--text); background: var(--bg-soft); border-color: var(--border-strong); }
+.tasting-options summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.tasting-options-list { position: absolute; top: calc(100% + .25rem); right: 0; z-index: 5; min-width: 11rem; padding: .3rem; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--bg-card); box-shadow: var(--shadow-elevated); }
+.tasting-options-list button { display: block; width: 100%; min-height: 44px; padding: .6rem .8rem; border: 0; border-radius: 8px; background: transparent; color: var(--text); text-align: left; box-shadow: none; white-space: nowrap; }
+.tasting-options-list button:hover, .tasting-options-list button:focus-visible { background: var(--bg-soft); }
+.tasting-options-list .tasting-delete-option { color: #ffb6ae; }
 .identity-panel { padding: 1.25rem; margin-block: 1.5rem; border: 1px solid var(--border-color, #444); border-radius: 1rem; overflow-wrap: anywhere; } .identity-panel p { margin-block: 0.75rem; }
 .email-recovery form { margin-block: 1.5rem; padding: 1rem; border: 1px solid var(--border-color, #444); border-radius: 0.75rem; } .email-recovery form input { margin-block: 0.5rem 1rem; } .email-recovery .recovery-key-value { overflow-wrap: anywhere; user-select: all; }
 

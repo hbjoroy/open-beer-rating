@@ -3,6 +3,7 @@ use crate::components::photo::AuthenticatedPhoto;
 use leptos::prelude::*;
 use leptos_router::hooks::use_query_map;
 use serde::Deserialize;
+use wasm_bindgen::JsCast;
 
 #[derive(Debug, Clone, Deserialize)]
 struct TastingResponse {
@@ -78,6 +79,10 @@ fn TastingEntry(
     token: ReadSignal<Option<String>>,
     refresh: WriteSignal<u32>,
 ) -> impl IntoView {
+    let actions = NodeRef::<leptos::html::Details>::new();
+    let trigger = NodeRef::<leptos::html::Summary>::new();
+    let score_input = NodeRef::<leptos::html::Input>::new();
+    let keep_button = NodeRef::<leptos::html::Button>::new();
     let (editing, set_editing) = signal(false);
     let (confirming, set_confirming) = signal(false);
     let (pending, set_pending) = signal(false);
@@ -153,6 +158,23 @@ fn TastingEntry(
     };
     let score_id = format!("score-{}", tasting.id);
     let notes_id = format!("notes-{}", tasting.id);
+    let action_label = format!(
+        "Actions for {} on {}",
+        tasting.beer_name.as_deref().unwrap_or("this tasting"),
+        format_date(&tasting.tasted_at)
+    );
+    let close_actions = move || {
+        if let Some(menu) = actions.get_untracked() {
+            menu.set_open(false);
+        }
+    };
+    let return_to_actions = move || {
+        request_animation_frame(move || {
+            if let Some(button) = trigger.get_untracked() {
+                let _ = button.focus();
+            }
+        });
+    };
     let photo_id = tasting.id.clone();
     let photo_alt = format!(
         "Tasting photo of {}",
@@ -161,7 +183,29 @@ fn TastingEntry(
     view! {
         <article class="tasting-entry" aria-busy=move || pending.get().to_string()>
             <div class="tasting-summary">
-            <div class="tasting-header"><span class="score-badge">{format!("{}/10", tasting.score)}</span>
+            <div class="tasting-header">
+                <div class="tasting-heading-actions">
+                    <span class="score-badge">{format!("{}/10", tasting.score)}</span>
+                    <details node_ref=actions class="tasting-options" hidden=move || editing.get() || confirming.get()
+                        on:keydown=move |ev| { if ev.key() == "Escape" { close_actions(); return_to_actions(); ev.stop_propagation(); } }
+                        on:focusout=move |ev| {
+                            let next = ev.related_target().and_then(|target| target.dyn_into::<web_sys::Node>().ok());
+                            if actions.get_untracked().is_some_and(|menu| !menu.contains(next.as_ref())) { close_actions(); }
+                        }
+                    >
+                        <summary node_ref=trigger aria-label=action_label title="Tasting actions"><span aria-hidden="true">"…"</span></summary>
+                        <div class="tasting-options-list">
+                            <button type="button" disabled=move || pending.get() on:click=move |_| {
+                                close_actions(); set_error.set(None); set_editing.set(true);
+                                request_animation_frame(move || { if let Some(input) = score_input.get_untracked() { let _ = input.focus(); } });
+                            }>"Edit tasting"</button>
+                            <button type="button" class="tasting-delete-option" disabled=move || pending.get() on:click=move |_| {
+                                close_actions(); set_error.set(None); set_confirming.set(true);
+                                request_animation_frame(move || { if let Some(button) = keep_button.get_untracked() { let _ = button.focus(); } });
+                            }>"Delete tasting"</button>
+                        </div>
+                    </details>
+                </div>
                 <h3><a href=format!("/beers/{}", tasting.beer_id)>{tasting.beer_name.unwrap_or_else(|| "View beer".into())}</a></h3>
                 <span class="brewery">{tasting.brewery_name.unwrap_or_default()}</span>
             </div>
@@ -179,22 +223,18 @@ fn TastingEntry(
             }}
             {tasting.notes.map(|value| view! { <p class="tasting-notes">{value}</p> })}
             {move || error.get().map(|message| view! { <p role="alert" class="error">{message}</p> })}
-            <div class="tasting-card-actions" hidden=move || editing.get() || confirming.get()>
-                <button type="button" class="btn-secondary" on:click=move |_| { set_error.set(None); set_editing.set(true); }>"Edit tasting"</button>
-                <button type="button" class="btn-danger" on:click=move |_| { set_error.set(None); set_confirming.set(true); }>"Delete tasting"</button>
-            </div>
             <form hidden=move || !editing.get() on:submit=on_save>
                 <label for=score_id.clone()>"Score (0–10)"</label>
-                <input id=score_id type="number" min="0" max="10" step="1" required prop:value=move || score.get() disabled=move || pending.get() on:input=move |ev| set_score.set(event_target_value(&ev)) />
+                <input node_ref=score_input id=score_id type="number" min="0" max="10" step="1" required prop:value=move || score.get() disabled=move || pending.get() on:input=move |ev| set_score.set(event_target_value(&ev)) />
                 <label for=notes_id.clone()>"Private notes"</label>
                 <textarea id=notes_id rows="3" prop:value=move || notes.get() disabled=move || pending.get() on:input=move |ev| set_notes.set(event_target_value(&ev))></textarea>
                 <button type="submit" disabled=move || pending.get()>"Save changes"</button>
-                <button type="button" disabled=move || pending.get() on:click=move |_| { set_score.set(original_score.to_string()); set_notes.set(original_notes.clone()); set_editing.set(false); set_error.set(None); }>"Cancel"</button>
+                <button type="button" disabled=move || pending.get() on:click=move |_| { set_score.set(original_score.to_string()); set_notes.set(original_notes.clone()); set_editing.set(false); set_error.set(None); return_to_actions(); }>"Cancel"</button>
             </form>
             <div hidden=move || !confirming.get()>
                 <p>"Delete this tasting permanently?"</p>
                 <button type="button" disabled=move || pending.get() on:click=on_delete>"Yes, delete tasting"</button>
-                <button type="button" disabled=move || pending.get() on:click=move |_| { set_confirming.set(false); set_error.set(None); }>"Keep tasting"</button>
+                <button node_ref=keep_button type="button" disabled=move || pending.get() on:click=move |_| { set_confirming.set(false); set_error.set(None); return_to_actions(); }>"Keep tasting"</button>
             </div>
             <Show when=move || pending.get()><p role="status">"Saving changes…"</p></Show>
         </article>
