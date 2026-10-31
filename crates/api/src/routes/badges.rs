@@ -22,6 +22,11 @@ pub async fn get_my_badges(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Vec<BadgeResponse>>, ApiError> {
+    // Reconcile historical/imported tastings too, including newly added badge
+    // definitions. A failed evaluation must not hide already earned badges.
+    if let Err(error) = evaluate_badges(&state.pool, auth.user_id).await {
+        tracing::error!(?error, "Badge evaluation failed while loading badges");
+    }
     let badges = db::badges::get_user_badges(&state.pool, auth.user_id).await?;
 
     Ok(Json(
@@ -61,6 +66,7 @@ pub async fn evaluate_badges(pool: &PgPool, user_id: Uuid) -> Result<(), ApiErro
                 let count = db::tastings::max_tastings_same_brewery(pool, user_id).await?;
                 count >= badge.criteria_value as i64
             }
+            "saint_pub" => db::badges::has_saint_pub_tasting(pool, user_id).await?,
             _ => false,
         };
 

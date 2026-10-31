@@ -260,6 +260,10 @@ pub async fn update_tasting(
     .await?
     .ok_or_else(|| ApiError::NotFound("Tasting not found or not yours".into()))?;
 
+    if let Err(error) = crate::routes::badges::evaluate_badges(&state.pool, auth.user_id).await {
+        tracing::error!(?error, "Badge evaluation failed after tasting was updated");
+    }
+
     let notes = decrypt_notes(row.notes_encrypted.as_deref(), &state.encryption_key);
 
     Ok(Json(TastingResponse {

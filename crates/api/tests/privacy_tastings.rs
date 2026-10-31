@@ -124,6 +124,176 @@ async fn tasting(
 
 #[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires dedicated PostgreSQL test server"]
+async fn saint_pub_badge_uses_own_tasting_venue_and_survives_deletion(pool: PgPool) {
+    let app = app(pool.clone());
+    let (owner, a, _) = user(&app, "pilgrim").await;
+    let (_, b, _) = user(&app, "bystander").await;
+    let beer = beer(&pool).await;
+    // Neither a saint beer name nor a saint session venue is evidence of a pub check-in.
+    sqlx::query("UPDATE beers SET name = 'Saint Patrick IPA' WHERE id=$1")
+        .bind(beer)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (status, loc) = request(
+        &app,
+        "POST",
+        "/api/locations",
+        Some(&b),
+        json!({"name":"St. Patrick’s", "location_type":"bar"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let loc = loc["id"].as_str().unwrap();
+    let sess = session(&app, &a, loc, "private").await;
+    let t = tasting(
+        &app,
+        &a,
+        beer,
+        None,
+        Some(sess["id"].as_str().unwrap()),
+        8,
+        "2026-10-01T12:00:00Z",
+    )
+    .await;
+    assert!(
+        !open_tappd_api::db::badges::has_saint_pub_tasting(&pool, owner)
+            .await
+            .unwrap()
+    );
+    // Adding the real shared pub to an existing tasting awards the badge.
+    let path = format!("/api/tastings/{}", t["id"].as_str().unwrap());
+    let (status, _) = request(
+        &app,
+        "PUT",
+        &path,
+        Some(&a),
+        json!({"score":8, "location_id":loc}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let saint_count = |badges: &Value| {
+        badges
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|b| b["name"] == "Holy Hop")
+            .count()
+    };
+    let (visitor, c, _) = user(&app, "pub_visitor").await;
+    tasting(&app, &c, beer, Some(loc), None, 7, "2026-10-01T12:00:00Z").await;
+    // Creation awards immediately, before any badge/profile read.
+    assert_eq!(
+        open_tappd_api::db::badges::get_user_badges(&pool, visitor)
+            .await
+            .unwrap()
+            .iter()
+            .filter(|b| b.badge_name == "Holy Hop")
+            .count(),
+        1
+    );
+    for _ in 0..2 {
+        let (status, badges) =
+            request(&app, "GET", "/api/users/me/badges", Some(&a), Value::Null).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(saint_count(&badges), 1);
+    }
+    let (_, badges) = request(&app, "GET", "/api/users/me/badges", Some(&b), Value::Null).await;
+    assert_eq!(saint_count(&badges), 0);
+    assert_eq!(
+        request(&app, "GET", "/api/users/me/badges", None, Value::Null)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(&app, "DELETE", &path, Some(&a), Value::Null)
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    let (_, badges) = request(&app, "GET", "/api/users/me/badges", Some(&a), Value::Null).await;
+    assert_eq!(saint_count(&badges), 1);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires dedicated PostgreSQL test server"]
+async fn saint_pub_badge_reconciles_history_once_and_rejects_unrelated_venues(pool: PgPool) {
+    let app = app(pool.clone());
+    let (owner, token, _) = user(&app, "historical").await;
+    let beer = beer(&pool).await;
+    for (name, kind) in [
+        ("High St. Bar", "bar"),
+        ("Stout Bar", "bar"),
+        ("Saint Mary Church", "other"),
+        ("Saint Olav Hotel", "other"),
+        ("St. Patrick's Pub", "restaurant"),
+    ] {
+        let loc: Uuid = sqlx::query_scalar("INSERT INTO locations(name,location_type,created_by) VALUES($1,$2::location_type,$3) RETURNING id")
+            .bind(name).bind(kind).bind(owner).fetch_one(&pool).await.unwrap();
+        tasting(
+            &app,
+            &token,
+            beer,
+            Some(&loc.to_string()),
+            None,
+            7,
+            "2026-10-01T12:00:00Z",
+        )
+        .await;
+    }
+    let (_, badges) = request(
+        &app,
+        "GET",
+        "/api/users/me/badges",
+        Some(&token),
+        Value::Null,
+    )
+    .await;
+    assert!(
+        !badges
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["name"] == "Holy Hop")
+    );
+    // A previously recorded pub tasting qualifies without another submission.
+    let loc: Uuid = sqlx::query_scalar("INSERT INTO locations(name,location_type,created_by,is_active) VALUES('Sankt Olav','bar',$1,false) RETURNING id")
+        .bind(owner).fetch_one(&pool).await.unwrap();
+    sqlx::query("INSERT INTO tastings(user_id,beer_id,score,location_id,tasted_at) VALUES($1,$2,7,$3,'2024-01-01T18:00:00Z')")
+        .bind(owner).bind(beer).bind(loc).execute(&pool).await.unwrap();
+    let (a, b) = tokio::join!(
+        request(
+            &app,
+            "GET",
+            "/api/users/me/badges",
+            Some(&token),
+            Value::Null
+        ),
+        request(
+            &app,
+            "GET",
+            "/api/users/me/badges",
+            Some(&token),
+            Value::Null
+        )
+    );
+    for (status, badges) in [a, b] {
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            badges
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|b| b["name"] == "Holy Hop")
+                .count(),
+            1
+        );
+    }
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires dedicated PostgreSQL test server"]
 async fn feed_stays_empty_and_locations_are_shared(pool: PgPool) {
     let app = app(pool.clone());
     let (owner, a, _) = user(&app, "owner").await;
