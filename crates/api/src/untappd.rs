@@ -105,7 +105,11 @@ pub async fn commit(
         .get("X-Import-Preview")
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| ApiError::Validation("Preview this file before importing it.".into()))?;
-    run(&state, &auth, &body, Some(receipt)).await.map(Json)
+    let result = run(&state, &auth, &body, Some(receipt)).await?;
+    if let Err(error) = crate::routes::badges::evaluate_badges(&state.pool, auth.user_id).await {
+        tracing::error!(?error, "Badge evaluation failed after import was committed");
+    }
+    Ok(Json(result))
 }
 
 fn invalid(row: usize, field: &str) -> ApiError {

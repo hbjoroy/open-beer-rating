@@ -47,30 +47,41 @@ pub async fn get_user_badges(
     .await
 }
 
-pub async fn has_badge(
-    pool: &PgPool,
-    user_id: Uuid,
-    badge_id: Uuid,
-) -> Result<bool, sqlx::Error> {
-    let row: Option<(i64,)> = sqlx::query_as(
-        "SELECT 1 FROM user_badges WHERE user_id = $1 AND badge_id = $2",
+pub async fn has_badge(pool: &PgPool, user_id: Uuid, badge_id: Uuid) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM user_badges WHERE user_id = $1 AND badge_id = $2)",
     )
     .bind(user_id)
     .bind(badge_id)
-    .fetch_optional(pool)
-    .await?;
-    Ok(row.is_some())
+    .fetch_one(pool)
+    .await
 }
 
-pub async fn award_badge(
-    pool: &PgPool,
-    user_id: Uuid,
-    badge_id: Uuid,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO user_badges (user_id, badge_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
-        .bind(user_id)
-        .bind(badge_id)
-        .execute(pool)
-        .await?;
+pub async fn award_badge(pool: &PgPool, user_id: Uuid, badge_id: Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO user_badges (user_id, badge_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(badge_id)
+    .execute(pool)
+    .await?;
     Ok(())
+}
+
+/// Only the drinker's own venue references qualify. A session's venue or the
+/// beer/brewery name does not establish where the tasting happened.
+pub async fn has_saint_pub_tasting(pool: &PgPool, user_id: Uuid) -> Result<bool, sqlx::Error> {
+    use open_tappd_domain::models::{badge::is_saint_pub, location::LocationType};
+
+    let venues: Vec<(String, LocationType)> = sqlx::query_as(
+        "SELECT DISTINCT l.name, l.location_type FROM tastings t \
+         JOIN locations l ON l.id = t.location_id \
+         WHERE t.user_id = $1 AND l.location_type IN ('bar', 'other')",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(venues
+        .into_iter()
+        .any(|(name, kind)| is_saint_pub(&name, kind)))
 }

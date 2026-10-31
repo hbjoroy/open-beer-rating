@@ -119,6 +119,39 @@ async fn counts(pool: &PgPool) -> (i64, i64, i64, i64) {
 
 #[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires dedicated PostgreSQL test server"]
+async fn saint_pub_badge_is_awarded_after_commit_never_preview(pool: PgPool) {
+    let _guard = TEST_LOCK.lock().await;
+    let app = app(pool.clone());
+    let (uid, token) = user(&pool, "saint_importer").await;
+    let mut data = fixture();
+    data[0]["venue_name"] = json!("St. Patrick's Pub");
+    preview(&app, &token, &data).await;
+    assert!(
+        open_tappd_api::db::badges::get_user_badges(&pool, uid)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    import(&app, &token, &data).await;
+    let badges = open_tappd_api::db::badges::get_user_badges(&pool, uid)
+        .await
+        .unwrap();
+    assert_eq!(
+        badges.iter().filter(|b| b.badge_name == "Holy Hop").count(),
+        1
+    );
+    import(&app, &token, &data).await;
+    let badges = open_tappd_api::db::badges::get_user_badges(&pool, uid)
+        .await
+        .unwrap();
+    assert_eq!(
+        badges.iter().filter(|b| b.badge_name == "Holy Hop").count(),
+        1
+    );
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires dedicated PostgreSQL test server"]
 async fn three_users_share_catalog_and_reimports_preserve_history(pool: PgPool) {
     let _guard = TEST_LOCK.lock().await;
     let app = app(pool.clone());

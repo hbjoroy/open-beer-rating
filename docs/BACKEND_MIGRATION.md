@@ -143,8 +143,27 @@ one row per beer; full history/export contains every tasting.
 
 Badge evaluation uses tasting data. If badge evaluation fails after a successful
 save, the save remains successful and the error is logged; badge evaluation is
-retried on the next submission. Existing awarded badges are not revoked on edit
-or deletion. Neither feature is a background job system.
+retried on the next submission or badge/profile view. Badge evaluation also runs
+after tasting edits and committed imports, never on import previews. Viewing
+badges reconciles older history against new badge definitions. Existing awarded
+badges are not revoked on edit or deletion. Neither feature is a background job system.
+
+`Holy Hop` requires one own tasting linked directly to a pub with an explicit
+saint title (St., Skt., Sankt/Sankta, Saint/Sainte, Sint, San/Sant/Santa/Santo).
+Matching is case-insensitive and accepts punctuation and an optional leading
+The/Pub/Bar/Café. Bare personal names are not guessed to be saints. The venue
+must be a `bar`; an unclassified `other` venue (including flat Untappd exports)
+also needs Pub/Bar/Tavern/Inn/Ølpub in its name. Restaurant, church/hotel and
+street-name matches are not inferred. A qualifying historical tasting still
+counts if the pub has since been deactivated. Beer names and session-only venue
+references never qualify. No drinking quantity, strength or speed requirement.
+
+Release requires the explicit migrator to apply
+`20261031000001_saint_pub_badge.sql` (one additive badge definition). Existing
+schema/history is unchanged, and the previous API safely ignores the new
+criterion. After a verified backup and migration rehearsal, normal rolling
+deployment is sufficient; an image rollback can leave this definition and any
+earned badges intact. Do not restore an older database over newer tastings.
 
 Export uses a repeatable-read snapshot and has no former 10,000-row cap. It
 includes all own tastings, decrypted notes, owned locations (including inactive
